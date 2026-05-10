@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Gemini quota now reports real usage instead of dummy 100%**: The probe used to discover a project via `cloudresourcemanager.googleapis.com/v1/projects`, which fails for personal-OAuth users (no GCP scope). Without a project, `cloudcode-pa retrieveUserQuota` returns a meaningless three-bucket "all 100%" response — the same symptom reported in #124 (quotas frozen at 100%) and the cause behind #122 (Gemini 3 models missing). `GeminiProjectRepository` now calls the same `cloudcode-pa loadCodeAssist` bootstrap that gemini-cli itself uses and surfaces the resulting `cloudaicompanionProject`, so the quota request returns accurate per-user numbers including `gemini-3-*-preview` buckets.
+
 ---
 
 ## [0.4.61] - 2026-05-08

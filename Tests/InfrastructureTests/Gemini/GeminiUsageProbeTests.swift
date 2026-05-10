@@ -37,9 +37,9 @@ struct GeminiUsageProbeTests {
         
         // Setup API mocks
         let projectsResponse = """
-        { "projects": [{ "projectId": "gen-lang-client-123" }] }
+        { "cloudaicompanionProject": "gen-lang-client-123" }
         """.data(using: .utf8)!
-        
+
         let quotaResponse = """
         {
             "buckets": [{
@@ -49,12 +49,12 @@ struct GeminiUsageProbeTests {
             }]
         }
         """.data(using: .utf8)!
-        
+
         given(mockService)
             .request(.any)
             .willProduce { request in
                 let url = request.url?.absoluteString ?? ""
-                if url.contains("projects") {
+                if url.contains("loadCodeAssist") {
                     return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
                 } else {
                     return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)

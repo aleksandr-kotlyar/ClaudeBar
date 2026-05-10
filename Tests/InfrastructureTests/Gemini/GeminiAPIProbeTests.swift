@@ -57,13 +57,12 @@ struct GeminiAPIProbeTests {
         try createCredentialsFile(in: homeDir)
         let mockService = MockNetworkClient()
 
-        // Setup mocks
+        // Setup mocks: loadCodeAssist returns the cloudaicompanionProject, then
+        // retrieveUserQuota returns model buckets. This mirrors how gemini-cli
+        // bootstraps a session, which is the path ClaudeBar must follow to get
+        // accurate per-user quota for personal-OAuth users.
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "alien-superstate-rq4hk" }
         """.data(using: .utf8)!
 
         let quotaResponse = """
@@ -82,7 +81,7 @@ struct GeminiAPIProbeTests {
             .request(.any)
             .willProduce { request in
                 let url = request.url?.absoluteString ?? ""
-                if url.contains("projects") {
+                if url.contains("loadCodeAssist") {
                     return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
                 } else {
                     return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
@@ -95,24 +94,22 @@ struct GeminiAPIProbeTests {
             networkClient: mockService,
             maxRetries: 1
         )
-        
+
         let snapshot = try await probe.probe()
-        
+
         // Verify quota
         #expect(snapshot.quotas.count == 1)
         #expect(snapshot.quotas.first?.percentRemaining == 80.0)
-        
-        // Verify project ID was included in quota request
+
+        // Verify the discovered project ID was included in the quota request
+        // (the bug this test pins down: without it, the API returns dummy 100%)
         verify(mockService)
             .request(.matching { request in
                 guard let url = request.url?.absoluteString else { return false }
-                
-                // Check if this is the quota request
                 if url.contains("retrieveUserQuota") {
-                    // Check body for project ID
                     if let body = request.httpBody,
                        let bodyStr = String(data: body, encoding: .utf8) {
-                        return bodyStr.contains("gen-lang-client-123456")
+                        return bodyStr.contains("alien-superstate-rq4hk")
                     }
                 }
                 return false
@@ -127,11 +124,7 @@ struct GeminiAPIProbeTests {
         let mockService = MockNetworkClient()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         // Use a reset time 2 hours in the future
@@ -156,7 +149,7 @@ struct GeminiAPIProbeTests {
             .request(.any)
             .willProduce { request in
                 let url = request.url?.absoluteString ?? ""
-                if url.contains("projects") {
+                if url.contains("loadCodeAssist") {
                     return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
                 } else {
                     return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
@@ -216,11 +209,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         let quotaResponse = """
@@ -291,11 +280,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         given(mockService)
@@ -332,11 +317,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         var quotaCalls = 0
@@ -383,11 +364,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         var quotaCalls = 0
