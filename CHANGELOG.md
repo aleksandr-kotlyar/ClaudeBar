@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Gemini quota now reports real usage instead of dummy 100%**: The probe used to discover a project via `cloudresourcemanager.googleapis.com/v1/projects`, which fails for personal-OAuth users (no GCP scope). Without a project, `cloudcode-pa retrieveUserQuota` returns a meaningless three-bucket "all 100%" response — the same symptom reported in #124 (quotas frozen at 100%) and the cause behind #122 (Gemini 3 models missing). `GeminiProjectRepository` now calls the same `cloudcode-pa loadCodeAssist` bootstrap that gemini-cli itself uses and surfaces the resulting `cloudaicompanionProject`, so the quota request returns accurate per-user numbers including `gemini-3-*-preview` buckets.
+
+### Changed
+- **Gemini quotas sort by usage**: Models with the lowest remaining fraction (most used) now appear first in the menu, with model ID as a stable tiebreaker. Previously sorted alphabetically, which buried the model you actually need to watch.
+- **Gemini quotas collapse tier-aliased duplicates**: The Code Assist API exposes one tier-level quota under multiple model IDs (e.g. `gemini-2.5-pro`, `gemini-3-pro-preview`, and `gemini-3.1-pro-preview` all return the same Pro-tier bucket). The probe now collapses aliases that share both tier and `(remainingFraction, resetTime)` into a single row labeled with the newest version, so 7 effectively-duplicate rows become 3 distinct quotas (Pro / Flash / Flash-Lite).
+
 ---
 
 ## [0.4.61] - 2026-05-08

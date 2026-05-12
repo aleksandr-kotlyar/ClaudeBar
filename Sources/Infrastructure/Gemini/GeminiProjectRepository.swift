@@ -8,7 +8,14 @@ internal struct GeminiProjectRepository {
     private let networkClient: any NetworkClient
     private let timeout: TimeInterval
     private let maxRetries: Int
-    private static let projectsEndpoint = "https://cloudresourcemanager.googleapis.com/v1/projects"
+
+    /// gemini-cli's bootstrap endpoint. Returns the user's `cloudaicompanionProject`
+    /// (the project ID required for accurate per-user quota on the personal-OAuth
+    /// "Gemini Code Assist" tier). The previous implementation called
+    /// `cloudresourcemanager.googleapis.com/v1/projects` which fails for users
+    /// without a GCP account, leaving the quota request projectless and the API
+    /// returning dummy 100% buckets.
+    private static let loadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
 
     init(
         networkClient: any NetworkClient,
@@ -27,16 +34,21 @@ internal struct GeminiProjectRepository {
         return projects.bestProjectForQuota
     }
 
-    /// Fetches all available Gemini projects with retry logic.
-    /// On cold start, network may not be immediately responsive.
+    /// Resolves the user's Gemini Code Assist project via the loadCodeAssist
+    /// bootstrap call and wraps it in a single-element `GeminiProjects` so the
+    /// rest of the probe pipeline (which expects a collection) keeps working.
+    /// Includes retry logic for cold-start network delays.
     func fetchProjects(accessToken: String) async -> GeminiProjects? {
-        guard let url = URL(string: Self.projectsEndpoint) else {
-            logger.error("Invalid projects endpoint URL")
+        guard let url = URL(string: Self.loadCodeAssistEndpoint) else {
+            logger.error("Invalid loadCodeAssist endpoint URL")
             return nil
         }
 
         var request = URLRequest(url: url)
+        request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"metadata":{"pluginType":"GEMINI"}}"#.utf8)
         request.timeoutInterval = timeout
 
         // Retry with exponential backoff for cold-start network delays
@@ -58,12 +70,14 @@ internal struct GeminiProjectRepository {
                 }
 
                 if httpResponse.statusCode == 200 {
-                    if let projects = try? JSONDecoder().decode(GeminiProjects.self, from: data) {
-                        logger.debug("Gemini project discovery: found \(projects.projects.count) projects")
-                        return projects
-                    } else {
-                        logger.warning("Gemini project discovery: failed to decode response")
+                    if let decoded = try? JSONDecoder().decode(LoadCodeAssistResponse.self, from: data),
+                       let projectId = decoded.cloudaicompanionProject, !projectId.isEmpty {
+                        logger.debug("Gemini project discovery: resolved project '\(projectId, privacy: .public)'")
+                        let project = GeminiProject(projectId: projectId, labels: nil)
+                        return GeminiProjects(projects: [project])
                     }
+                    logger.warning("Gemini project discovery: response missing cloudaicompanionProject")
+                    return GeminiProjects(projects: [])
                 } else if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
                     // Auth errors won't be fixed by retrying
                     logger.error("Gemini project discovery: auth error \(httpResponse.statusCode)")
@@ -84,5 +98,9 @@ internal struct GeminiProjectRepository {
             logger.error("Gemini project discovery failed after \(self.maxRetries) attempts: \(lastError.localizedDescription)")
         }
         return nil
+    }
+
+    private struct LoadCodeAssistResponse: Decodable {
+        let cloudaicompanionProject: String?
     }
 }

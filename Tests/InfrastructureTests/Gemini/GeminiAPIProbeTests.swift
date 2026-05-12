@@ -57,13 +57,12 @@ struct GeminiAPIProbeTests {
         try createCredentialsFile(in: homeDir)
         let mockService = MockNetworkClient()
 
-        // Setup mocks
+        // Setup mocks: loadCodeAssist returns the cloudaicompanionProject, then
+        // retrieveUserQuota returns model buckets. This mirrors how gemini-cli
+        // bootstraps a session, which is the path ClaudeBar must follow to get
+        // accurate per-user quota for personal-OAuth users.
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "alien-superstate-rq4hk" }
         """.data(using: .utf8)!
 
         let quotaResponse = """
@@ -82,7 +81,7 @@ struct GeminiAPIProbeTests {
             .request(.any)
             .willProduce { request in
                 let url = request.url?.absoluteString ?? ""
-                if url.contains("projects") {
+                if url.contains("loadCodeAssist") {
                     return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
                 } else {
                     return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
@@ -95,31 +94,201 @@ struct GeminiAPIProbeTests {
             networkClient: mockService,
             maxRetries: 1
         )
-        
+
         let snapshot = try await probe.probe()
-        
+
         // Verify quota
         #expect(snapshot.quotas.count == 1)
         #expect(snapshot.quotas.first?.percentRemaining == 80.0)
-        
-        // Verify project ID was included in quota request
+
+        // Verify the discovered project ID was included in the quota request
+        // (the bug this test pins down: without it, the API returns dummy 100%)
         verify(mockService)
             .request(.matching { request in
                 guard let url = request.url?.absoluteString else { return false }
-                
-                // Check if this is the quota request
                 if url.contains("retrieveUserQuota") {
-                    // Check body for project ID
                     if let body = request.httpBody,
                        let bodyStr = String(data: body, encoding: .utf8) {
-                        return bodyStr.contains("gen-lang-client-123456")
+                        return bodyStr.contains("alien-superstate-rq4hk")
                     }
                 }
                 return false
             })
             .called(1)
     }
-    
+
+    @Test
+    func `probe sorts quotas by remaining fraction ascending`() async throws {
+        // Ensures the most-used models bubble to the top so a glance at the
+        // menu surfaces what's actually under pressure. Tiebreaker is model ID.
+        let homeDir = try makeTemporaryHomeDirectory()
+        try createCredentialsFile(in: homeDir)
+        let mockService = MockNetworkClient()
+
+        let projectsResponse = """
+        { "cloudaicompanionProject": "alien-superstate-rq4hk" }
+        """.data(using: .utf8)!
+
+        // Distinct tiers, distinct fractions — covers the sort path without
+        // tripping the alias-dedupe path (which collapses tier-mates).
+        let quotaResponse = """
+        {
+            "buckets": [
+                { "modelId": "gemini-2.5-pro",        "remainingFraction": 0.05, "resetTime": "2026-05-10T17:28:41Z" },
+                { "modelId": "gemini-2.5-flash",      "remainingFraction": 0.4,  "resetTime": "2026-05-10T17:29:03Z" },
+                { "modelId": "gemini-2.5-flash-lite", "remainingFraction": 0.99, "resetTime": "2026-05-11T14:56:33Z" },
+                { "modelId": "gemini-other",          "remainingFraction": 1.0,  "resetTime": "2026-05-11T14:56:33Z" }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        given(mockService)
+            .request(.any)
+            .willProduce { request in
+                let url = request.url?.absoluteString ?? ""
+                if url.contains("loadCodeAssist") {
+                    return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                } else {
+                    return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                }
+            }
+
+        let probe = GeminiAPIProbe(
+            homeDirectory: homeDir.path,
+            timeout: 1.0,
+            networkClient: mockService,
+            maxRetries: 1
+        )
+
+        let snapshot = try await probe.probe()
+
+        let labels: [String] = snapshot.quotas.compactMap {
+            if case let .modelSpecific(label) = $0.quotaType { return label }
+            return nil
+        }
+        // Tiered models get tier labels (matching gemini-cli's /model UI);
+        // unrecognized models keep their raw ID.
+        #expect(labels == [
+            "Pro",          // 5%
+            "Flash",        // 40%
+            "Flash Lite",   // 99%
+            "gemini-other"  // 100%
+        ])
+    }
+
+    @Test
+    func `probe collapses tier-aliased model IDs into one row per tier`() async throws {
+        // The Code Assist API reports one tier-level bucket under every model
+        // alias the user can call (e.g. all three Pro IDs share the Pro
+        // bucket and move in lockstep). Without dedupe, the menu shows the
+        // same quota three times. Survivor is the newest-versioned alias.
+        let homeDir = try makeTemporaryHomeDirectory()
+        try createCredentialsFile(in: homeDir)
+        let mockService = MockNetworkClient()
+
+        let projectsResponse = """
+        { "cloudaicompanionProject": "alien-superstate-rq4hk" }
+        """.data(using: .utf8)!
+
+        let quotaResponse = """
+        {
+            "buckets": [
+                { "modelId": "gemini-2.5-pro",                "remainingFraction": 0.88, "resetTime": "2026-05-10T17:28:41Z" },
+                { "modelId": "gemini-3-pro-preview",          "remainingFraction": 0.88, "resetTime": "2026-05-10T17:28:41Z" },
+                { "modelId": "gemini-3.1-pro-preview",        "remainingFraction": 0.88, "resetTime": "2026-05-10T17:28:41Z" },
+                { "modelId": "gemini-2.5-flash",              "remainingFraction": 0.96, "resetTime": "2026-05-10T17:29:03Z" },
+                { "modelId": "gemini-3-flash-preview",        "remainingFraction": 0.96, "resetTime": "2026-05-10T17:29:03Z" },
+                { "modelId": "gemini-2.5-flash-lite",         "remainingFraction": 1.0,  "resetTime": "2026-05-11T14:56:55Z" },
+                { "modelId": "gemini-3.1-flash-lite-preview", "remainingFraction": 1.0,  "resetTime": "2026-05-11T14:56:55Z" }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        given(mockService)
+            .request(.any)
+            .willProduce { request in
+                let url = request.url?.absoluteString ?? ""
+                if url.contains("loadCodeAssist") {
+                    return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                } else {
+                    return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                }
+            }
+
+        let probe = GeminiAPIProbe(
+            homeDirectory: homeDir.path,
+            timeout: 1.0,
+            networkClient: mockService,
+            maxRetries: 1
+        )
+
+        let snapshot = try await probe.probe()
+
+        #expect(snapshot.quotas.count == 3)
+
+        let labels: [String] = snapshot.quotas.compactMap {
+            if case let .modelSpecific(label) = $0.quotaType { return label }
+            return nil
+        }
+        // Tier labels match gemini-cli's /model view — independent of which
+        // version alias survived the dedupe, the quota represents the tier.
+        #expect(labels == [
+            "Pro",         // 88% — most used
+            "Flash",       // 96%
+            "Flash Lite"   // 100%
+        ])
+    }
+
+    @Test
+    func `probe falls back to newest preview when only previews are available`() async throws {
+        // If a tier exposes only preview aliases (e.g. on accounts where the
+        // stable model has been retired), the highest-versioned preview wins.
+        let homeDir = try makeTemporaryHomeDirectory()
+        try createCredentialsFile(in: homeDir)
+        let mockService = MockNetworkClient()
+
+        let projectsResponse = """
+        { "cloudaicompanionProject": "alien-superstate-rq4hk" }
+        """.data(using: .utf8)!
+
+        let quotaResponse = """
+        {
+            "buckets": [
+                { "modelId": "gemini-3-pro-preview",   "remainingFraction": 0.5, "resetTime": "2026-05-10T17:28:41Z" },
+                { "modelId": "gemini-3.1-pro-preview", "remainingFraction": 0.5, "resetTime": "2026-05-10T17:28:41Z" }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        given(mockService)
+            .request(.any)
+            .willProduce { request in
+                let url = request.url?.absoluteString ?? ""
+                if url.contains("loadCodeAssist") {
+                    return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                } else {
+                    return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                }
+            }
+
+        let probe = GeminiAPIProbe(
+            homeDirectory: homeDir.path,
+            timeout: 1.0,
+            networkClient: mockService,
+            maxRetries: 1
+        )
+
+        let snapshot = try await probe.probe()
+
+        #expect(snapshot.quotas.count == 1)
+        if case let .modelSpecific(label) = snapshot.quotas.first?.quotaType {
+            // Even with only previews available, the row is labeled by tier.
+            #expect(label == "Pro")
+        } else {
+            Issue.record("expected modelSpecific quota")
+        }
+    }
+
     @Test
     func `probe parses reset time into Date and human readable text`() async throws {
         let homeDir = try makeTemporaryHomeDirectory()
@@ -127,11 +296,7 @@ struct GeminiAPIProbeTests {
         let mockService = MockNetworkClient()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         // Use a reset time 2 hours in the future
@@ -156,7 +321,7 @@ struct GeminiAPIProbeTests {
             .request(.any)
             .willProduce { request in
                 let url = request.url?.absoluteString ?? ""
-                if url.contains("projects") {
+                if url.contains("loadCodeAssist") {
                     return (projectsResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
                 } else {
                     return (quotaResponse, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
@@ -216,11 +381,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         let quotaResponse = """
@@ -291,11 +452,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         given(mockService)
@@ -332,11 +489,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         var quotaCalls = 0
@@ -383,11 +536,7 @@ struct GeminiAPIProbeTests {
         let mockExecutor = MockCLIExecutor()
 
         let projectsResponse = """
-        {
-            "projects": [
-                { "projectId": "gen-lang-client-123456" }
-            ]
-        }
+        { "cloudaicompanionProject": "gen-lang-client-123456" }
         """.data(using: .utf8)!
 
         var quotaCalls = 0

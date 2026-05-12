@@ -171,13 +171,30 @@ internal struct GeminiAPIProbe {
             }
         }
 
-        let quotas: [UsageQuota] = modelQuotaMap
-            .sorted { $0.key < $1.key }
-            .map { modelId, data in
-                let resetsAt = data.resetTime.flatMap { parseResetTime($0) }
+        // Collapse aliases that share a quota bucket. The Code Assist API
+        // exposes one tier-level quota under multiple model IDs (e.g. the Pro
+        // tier appears as gemini-2.5-pro, gemini-3-pro-preview, and
+        // gemini-3.1-pro-preview, all moving in lockstep). When the tier and
+        // (fraction, resetTime) match, keep only the newest-versioned model
+        // as the survivor — the menu otherwise shows the same quota three
+        // times in a row. Models with no recognizable tier stay distinct.
+        let dedupedEntries = Self.dedupeAliases(modelQuotaMap)
+
+        // Sort by remaining fraction ascending (most-used models first), with
+        // model ID as a stable tiebreaker so the order doesn't shuffle between
+        // probes when multiple models share a quota (e.g. several at 100%).
+        let quotas: [UsageQuota] = dedupedEntries
+            .sorted { lhs, rhs in
+                if lhs.fraction != rhs.fraction {
+                    return lhs.fraction < rhs.fraction
+                }
+                return lhs.modelId < rhs.modelId
+            }
+            .map { entry in
+                let resetsAt = entry.resetTime.flatMap { parseResetTime($0) }
                 return UsageQuota(
-                    percentRemaining: data.fraction * 100,
-                    quotaType: .modelSpecific(modelId),
+                    percentRemaining: entry.fraction * 100,
+                    quotaType: .modelSpecific(entry.displayLabel),
                     providerId: "gemini",
                     resetsAt: resetsAt,
                     resetText: formatResetText(resetsAt)
@@ -272,5 +289,97 @@ internal struct GeminiAPIProbe {
 
     private struct QuotaResponse: Decodable {
         let buckets: [QuotaBucket]?
+    }
+
+    // MARK: - Tier-aware Alias Dedupe
+
+    fileprivate struct DedupedEntry {
+        /// The model ID that won the survivor selection (kept for stable
+        /// sort tiebreaks and parity with single-row entries).
+        let modelId: String
+        /// What gets shown to the user. For tiered entries this is the
+        /// tier label ("Pro" / "Flash" / "Flash Lite") matching gemini-cli's
+        /// own /model UI; for unrecognized models it's the modelId.
+        let displayLabel: String
+        let fraction: Double
+        let resetTime: String?
+    }
+
+    /// Human-readable tier label matching gemini-cli's `/model` view.
+    fileprivate static func tierDisplayLabel(_ tier: String) -> String {
+        switch tier {
+        case "pro": return "Pro"
+        case "flash": return "Flash"
+        case "flash-lite": return "Flash Lite"
+        default: return tier
+        }
+    }
+
+    /// Detects which tier a Gemini model ID belongs to. The Code Assist quota
+    /// system gates on tier (Pro / Flash / Flash-Lite) but exposes the same
+    /// bucket under every model alias the user is allowed to call. Returns nil
+    /// for models with no recognizable tier — those keep their own row.
+    /// Note: Flash-Lite must be checked before Flash (the substring "flash"
+    /// appears in both).
+    fileprivate static func tier(for modelId: String) -> String? {
+        let lower = modelId.lowercased()
+        if lower.contains("flash-lite") { return "flash-lite" }
+        if lower.contains("flash") { return "flash" }
+        if lower.contains("pro") { return "pro" }
+        return nil
+    }
+
+    /// Extracts a comparable version score from a Gemini model ID. The version
+    /// segment is the first dotted-number group after the "gemini-" prefix —
+    /// e.g. "gemini-3.1-pro-preview" → 3.1, "gemini-2.5-flash" → 2.5.
+    fileprivate static func versionScore(_ modelId: String) -> Double {
+        let stripped = modelId.lowercased()
+            .replacingOccurrences(of: "gemini-", with: "")
+        guard let head = stripped.split(separator: "-").first else { return 0 }
+        let nums = head.split(separator: ".").compactMap { Double($0) }
+        guard let major = nums.first else { return 0 }
+        let minor = nums.count > 1 ? nums[1] : 0
+        return major + minor / 100.0
+    }
+
+    /// Decides which alias label survives when two share a tier+bucket. The
+    /// stable model the user actually invokes day-to-day wins over preview
+    /// IDs that share the same quota; among models of the same preview-ness
+    /// the highest version wins. Falls back to model ID for stability.
+    fileprivate static func isPreferredOver(_ candidate: String, _ existing: String) -> Bool {
+        let candidatePreview = candidate.lowercased().contains("preview")
+        let existingPreview = existing.lowercased().contains("preview")
+        if candidatePreview != existingPreview { return !candidatePreview }
+        let candidateScore = versionScore(candidate)
+        let existingScore = versionScore(existing)
+        if candidateScore != existingScore { return candidateScore > existingScore }
+        return candidate < existing
+    }
+
+    fileprivate static func dedupeAliases(
+        _ modelQuotaMap: [String: (fraction: Double, resetTime: String?)]
+    ) -> [DedupedEntry] {
+        struct BucketKey: Hashable {
+            let group: String     // "tier:pro" or "model:<id>"
+            let fraction: Double
+            let resetTime: String?
+        }
+
+        var survivors: [BucketKey: DedupedEntry] = [:]
+        for (modelId, data) in modelQuotaMap {
+            let detectedTier = tier(for: modelId)
+            let group = detectedTier.map { "tier:\($0)" } ?? "model:\(modelId)"
+            let key = BucketKey(group: group, fraction: data.fraction, resetTime: data.resetTime)
+            let displayLabel = detectedTier.map(tierDisplayLabel) ?? modelId
+
+            if let existing = survivors[key] {
+                if isPreferredOver(modelId, existing.modelId) {
+                    survivors[key] = DedupedEntry(modelId: modelId, displayLabel: displayLabel, fraction: data.fraction, resetTime: data.resetTime)
+                }
+            } else {
+                survivors[key] = DedupedEntry(modelId: modelId, displayLabel: displayLabel, fraction: data.fraction, resetTime: data.resetTime)
+            }
+        }
+        return Array(survivors.values)
     }
 }
