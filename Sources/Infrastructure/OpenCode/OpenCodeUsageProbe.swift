@@ -76,7 +76,7 @@ public struct OpenCodeUsageProbe: UsageProbe {
                 percentRemaining: fiveHourRemaining,
                 quotaType: .session,
                 providerId: "opencode-go",
-                resetsAt: now.addingTimeInterval(5 * 3600)
+                resetsAt: Self.fiveHourResetDate(from: windows.fiveHourOldestMs, fallback: now)
             ),
             UsageQuota(
                 percentRemaining: weeklyRemaining,
@@ -113,13 +113,16 @@ public struct OpenCodeUsageProbe: UsageProbe {
         // they cross a month boundary (e.g., now is May 1 at 2am, weekStart is April 28).
         let earliestCutoffMs = min(fiveHourMs, weekStartMs, monthStartMs)
 
+        // Count only messages routed through OpenCode Go; API-key traffic does not use Go quota.
         let sql = """
         SELECT
           COALESCE(SUM(CASE WHEN time_created >= \(fiveHourMs) THEN CAST(json_extract(data, '$.cost') AS REAL) ELSE 0 END), 0) as five_hour_cost,
           COALESCE(SUM(CASE WHEN time_created >= \(weekStartMs) THEN CAST(json_extract(data, '$.cost') AS REAL) ELSE 0 END), 0) as weekly_cost,
-          COALESCE(SUM(CASE WHEN time_created >= \(monthStartMs) THEN CAST(json_extract(data, '$.cost') AS REAL) ELSE 0 END), 0) as monthly_cost
+          COALESCE(SUM(CASE WHEN time_created >= \(monthStartMs) THEN CAST(json_extract(data, '$.cost') AS REAL) ELSE 0 END), 0) as monthly_cost,
+          MIN(CASE WHEN time_created >= \(fiveHourMs) THEN time_created ELSE NULL END) as five_hour_oldest_ms
         FROM message
         WHERE json_extract(data, '$.role') = 'assistant'
+          AND json_extract(data, '$.providerID') = 'opencode-go'
           AND time_created >= \(earliestCutoffMs)
         """
         return try await runDBQuery(sql)
@@ -159,21 +162,30 @@ public struct OpenCodeUsageProbe: UsageProbe {
         return WindowCosts(
             fiveHourCost: row.five_hour_cost,
             weeklyCost: row.weekly_cost,
-            monthlyCost: row.monthly_cost
+            monthlyCost: row.monthly_cost,
+            fiveHourOldestMs: row.five_hour_oldest_ms
         )
     }
 
-    /// Returns percentage remaining. Negative when over limit (handled by `QuotaStatus.from`
-    /// which maps `<= 0` to `.depleted`). UsageQuota caps at 100 internally.
+    /// Returns percentage remaining, clamped to [0, 100].
+    /// Over-limit usage clamps to 0%, which maps to `.depleted`.
     static func percentRemaining(used: Double, limit: Double) -> Double {
         guard limit > 0 else { return 100 }
-        return (limit - used) / limit * 100
+        return max(0, min(100, (limit - used) / limit * 100))
     }
 
     // MARK: - Time helpers
 
     static func millisSinceEpoch(_ date: Date) -> Int64 {
         Int64(date.timeIntervalSince1970 * 1000)
+    }
+
+    static func fiveHourResetDate(from oldestMs: Int64?, fallback now: Date) -> Date {
+        guard let oldestMs else {
+            return now.addingTimeInterval(5 * 3600)
+        }
+        return Date(timeIntervalSince1970: TimeInterval(oldestMs) / 1000)
+            .addingTimeInterval(5 * 3600)
     }
 
     static func startOfWeek(from date: Date) -> Date {
@@ -206,6 +218,7 @@ private struct WindowRow: Decodable {
     let five_hour_cost: Double
     let weekly_cost: Double
     let monthly_cost: Double
+    let five_hour_oldest_ms: Int64?
 }
 
 /// Parsed window costs for Go quota tracking.
@@ -213,4 +226,5 @@ public struct WindowCosts: Sendable {
     public let fiveHourCost: Double
     public let weeklyCost: Double
     public let monthlyCost: Double
+    public let fiveHourOldestMs: Int64?
 }

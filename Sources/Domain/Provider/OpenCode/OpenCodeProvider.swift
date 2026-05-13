@@ -12,7 +12,7 @@ public final class OpenCodeProvider: AIProvider, @unchecked Sendable {
     public let cliCommand: String = "opencode"
 
     public var dashboardURL: URL? {
-        nil  // No usage dashboard URL
+        URL(string: "https://opencode.ai/auth")
     }
 
     public var statusPageURL: URL? {
