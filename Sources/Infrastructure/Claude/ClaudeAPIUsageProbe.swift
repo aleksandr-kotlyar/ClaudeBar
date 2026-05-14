@@ -12,10 +12,15 @@ private final class SnapshotCache: @unchecked Sendable {
     private let ttl: TimeInterval
     private let lock = NSLock()
 
+    /// Creates a snapshot cache with the given maximum lifetime for a cached
+    /// entry. A `ttl` of `0` effectively disables caching (every `get` misses).
     init(ttl: TimeInterval) {
         self.ttl = ttl
     }
 
+    /// Returns the cached snapshot if it was stored within `ttl` of `now`;
+    /// otherwise evicts the stale entry and returns `nil` so the caller knows
+    /// to re-fetch.
     func get(now: Date = Date()) -> UsageSnapshot? {
         lock.lock()
         defer { lock.unlock() }
@@ -28,6 +33,8 @@ private final class SnapshotCache: @unchecked Sendable {
         return cached
     }
 
+    /// Stores a fresh snapshot and stamps it with `now`, replacing any prior
+    /// entry. The next `get` call within `ttl` of `now` will hit this entry.
     func set(_ snapshot: UsageSnapshot, now: Date = Date()) {
         lock.lock()
         defer { lock.unlock() }
@@ -56,6 +63,8 @@ private final class RateLimitState: @unchecked Sendable {
         return retryAt
     }
 
+    /// Records a new rate-limit window expiring at `retryAt`. Subsequent
+    /// `activeRetryAt` calls return this value until it falls into the past.
     func set(retryAt: Date) {
         lock.lock()
         defer { lock.unlock() }
