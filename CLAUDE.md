@@ -33,7 +33,7 @@ tuist build
 # Run all tests
 tuist test
 
-# Run a specific test target
+# Run a specific test target (DomainTests, InfrastructureTests, AcceptanceTests)
 tuist test DomainTests
 
 # Run tests with coverage
