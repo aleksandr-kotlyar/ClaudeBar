@@ -25,6 +25,7 @@ struct ProviderSelectionSpec {
     // MARK: - #4: Switch to a different provider
 
     @Suite("Scenario: Switch to a different provider")
+    @MainActor
     struct SwitchProvider {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -83,6 +84,7 @@ struct ProviderSelectionSpec {
     // MARK: - #5: Only enabled providers appear as pills
 
     @Suite("Scenario: Only enabled providers appear as pills")
+    @MainActor
     struct EnabledProviders {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -134,6 +136,7 @@ struct ProviderSelectionSpec {
     // MARK: - #6: Disabling the currently selected provider → auto-switches
 
     @Suite("Scenario: Disabling the currently selected provider")
+    @MainActor
     struct DisableSelectedProvider {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -190,6 +193,7 @@ struct ProviderSelectionSpec {
     // MARK: - #7: Selecting a disabled provider is rejected
 
     @Suite("Scenario: Selecting a disabled provider")
+    @MainActor
     struct SelectDisabledProvider {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}

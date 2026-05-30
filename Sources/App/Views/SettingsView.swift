@@ -1053,26 +1053,23 @@ struct SettingsContentView: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("SYNC INTERVAL")
+                    Text("REFRESH INTERVAL")
                         .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
                         .foregroundStyle(theme.textSecondary)
                         .tracking(0.5)
 
-                    Picker("", selection: $settings.backgroundSyncInterval) {
-                        Text("30 seconds").tag(30.0)
-                        Text("1 minute").tag(60.0)
-                        Text("2 minutes").tag(120.0)
-                        Text("5 minutes").tag(300.0)
+                    Picker("", selection: $settings.refreshInterval) {
+                        ForEach(RefreshInterval.allCases, id: \.self) { interval in
+                            Text(interval.label).tag(interval)
+                        }
                     }
                     .pickerStyle(.segmented)
-                    .disabled(!settings.backgroundSyncEnabled)
                 }
 
-                Text("Sync usage data in the background so it's always fresh when you check.")
+                Text("Keep the menu-bar number fresh in the background. \"Off\" updates only when you open the menu. Never refreshes faster than once a minute.")
                     .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
                     .foregroundStyle(theme.textTertiary)
             }
-            .opacity(settings.backgroundSyncEnabled ? 1 : 0.6)
         } label: {
             backgroundSyncHeader
                 .contentShape(.rect)
@@ -1126,11 +1123,11 @@ struct SettingsContentView: View {
 
             Spacer()
 
-            Toggle("", isOn: $settings.backgroundSyncEnabled)
-                .toggleStyle(.switch)
-                .tint(theme.accentPrimary)
-                .scaleEffect(0.8)
-                .labelsHidden()
+            // The on/off control now lives in the picker's "Off" case; show the
+            // current cadence here so it's visible while the card is collapsed.
+            Text(settings.refreshInterval.label)
+                .font(.system(size: 11, weight: .semibold, design: theme.fontDesign))
+                .foregroundStyle(theme.textSecondary)
         }
     }
 

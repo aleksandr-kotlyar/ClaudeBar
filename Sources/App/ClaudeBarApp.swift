@@ -187,6 +187,39 @@ struct ClaudeBarApp: App {
         ThemeMode(rawValue: settings.themeMode) ?? .system
     }
 
+    // MARK: - Background Refresh
+
+    /// Identity for the app-lifetime background-refresh loop. When any field
+    /// changes, the scene `.task(id:)` cancels the running loop and restarts it
+    /// with the new cadence/target — replacing the per-setting `.onChange`
+    /// restarts that used to live in `MenuContentView`.
+    private struct RefreshLoopKey: Hashable {
+        let isEnabled: Bool
+        let seconds: Int
+        let providerIds: [String]?
+    }
+
+    private var refreshLoopKey: RefreshLoopKey {
+        let interval = settings.refreshInterval
+        return RefreshLoopKey(
+            isEnabled: interval.isEnabled,
+            seconds: interval.seconds ?? 0,
+            providerIds: backgroundRefreshProviderIds
+        )
+    }
+
+    /// While the dropdown is closed we only need the menu-bar provider(s) fresh,
+    /// so narrow the periodic refresh to the selected + configured menu-bar
+    /// provider when a menu-bar readout is on; otherwise just the selected
+    /// provider. Keeps background work minimal for energy (issue #67).
+    private var backgroundRefreshProviderIds: [String]? {
+        guard settings.menuBarPercentageEnabled || settings.menuBarDurationEnabled else { return nil }
+        return [
+            monitor.selectedProviderId,
+            settings.menuBarPercentageProviderId,
+        ]
+    }
+
     private func startHookServer() {
         // Cancel any existing server task
         hookServerTask?.cancel()
@@ -257,17 +290,40 @@ struct ClaudeBarApp: App {
                 .appThemeProvider(themeModeId: settings.themeMode)
             #endif
         } label: {
-            // Show overall status + active session indicator in menu bar
-            if let label = menuBarLabelText {
-                StatusBarPercentageLabel(
-                    text: label.text,
-                    status: label.status,
-                    activeSession: sessionMonitor.activeSession
-                )
-                .appThemeProvider(themeModeId: settings.themeMode)
-            } else {
-                StatusBarIcon(status: effectiveSelectedProviderStatus, activeSession: sessionMonitor.activeSession)
+            // Show overall status + active session indicator in menu bar.
+            //
+            // The background-refresh loop is attached here, to the always-present
+            // menu-bar label, so it runs for the app's lifetime independent of
+            // whether the dropdown is open — keeping the at-a-glance number fresh
+            // while the popover is closed. `.task(id:)` restarts the loop when the
+            // cadence or target provider changes and SwiftUI tears it down on exit.
+            Group {
+                if let label = menuBarLabelText {
+                    StatusBarPercentageLabel(
+                        text: label.text,
+                        status: label.status,
+                        activeSession: sessionMonitor.activeSession
+                    )
                     .appThemeProvider(themeModeId: settings.themeMode)
+                } else {
+                    StatusBarIcon(status: effectiveSelectedProviderStatus, activeSession: sessionMonitor.activeSession)
+                        .appThemeProvider(themeModeId: settings.themeMode)
+                }
+            }
+            .task(id: refreshLoopKey) {
+                guard refreshLoopKey.isEnabled else {
+                    monitor.stopMonitoring()
+                    return
+                }
+                AppLog.monitor.info("Background refresh starting (interval: \(refreshLoopKey.seconds)s, providers: \(refreshLoopKey.providerIds?.joined(separator: ",") ?? "selected"))")
+                let stream = monitor.startMonitoring(
+                    interval: .seconds(refreshLoopKey.seconds),
+                    providerIds: refreshLoopKey.providerIds
+                )
+                for await _ in stream {
+                    // QuotaMonitor updates provider snapshots; the menu-bar label
+                    // re-renders from observable state — nothing to do per event.
+                }
             }
         }
         .menuBarExtraStyle(.window)

@@ -32,6 +32,7 @@ struct ProviderEnableDisableSpec {
     // MARK: - #46: Disable provider excludes from monitoring
 
     @Suite("Scenario: Disable a provider")
+    @MainActor
     struct DisableProvider {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -113,6 +114,7 @@ struct ProviderEnableDisableSpec {
     // MARK: - #47: Enable provider without changing selection
 
     @Suite("Scenario: Enable a provider")
+    @MainActor
     struct EnableProvider {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -146,6 +148,7 @@ struct ProviderEnableDisableSpec {
     // MARK: - #48: Enabled state persists
 
     @Suite("Scenario: Enabled state persists across restarts")
+    @MainActor
     struct PersistEnabledState {
 
         @Test

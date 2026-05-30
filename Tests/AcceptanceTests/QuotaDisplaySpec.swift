@@ -26,6 +26,7 @@ struct QuotaDisplaySpec {
     // MARK: - #8: Account info card
 
     @Suite("Scenario: Account info displays after refresh")
+    @MainActor
     struct AccountInfo {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -83,6 +84,7 @@ struct QuotaDisplaySpec {
     // MARK: - #9: Quota cards with percentage, status, reset time
 
     @Suite("Scenario: Quota cards display correctly after refresh")
+    @MainActor
     struct QuotaCards {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -176,6 +178,7 @@ struct QuotaDisplaySpec {
     // MARK: - #10: Remaining vs Used display mode
 
     @Suite("Scenario: Toggle between Remaining and Used display")
+    @MainActor
     struct DisplayMode {
 
         @Test
@@ -207,6 +210,7 @@ struct QuotaDisplaySpec {
     // MARK: - #13: Unavailable provider shows error
 
     @Suite("Scenario: Unavailable provider shows error message")
+    @MainActor
     struct ProviderErrors {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -268,6 +272,7 @@ struct QuotaDisplaySpec {
     // MARK: - #14: Over-quota negative percentages
 
     @Suite("Scenario: Over-quota displays negative percentages")
+    @MainActor
     struct OverQuota {
 
         @Test

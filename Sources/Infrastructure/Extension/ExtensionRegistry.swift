@@ -32,6 +32,9 @@ public final class ExtensionRegistry: Sendable {
 
     /// Scans for extensions and registers them with the monitor.
     /// Returns the list of registered extension providers.
+    /// `@MainActor` because `QuotaMonitor` is main-actor isolated; this runs once
+    /// during app init, which is already on the main actor.
+    @MainActor
     @discardableResult
     public func loadExtensions(into monitor: QuotaMonitor) -> [ExtensionProvider] {
         ensureDirectoryExists()

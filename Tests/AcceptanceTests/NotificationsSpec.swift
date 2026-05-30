@@ -33,6 +33,7 @@ struct NotificationsSpec {
     // MARK: - #19–21: Quota degrades → notification sent
 
     @Suite("Scenario: Quota degrades")
+    @MainActor
     struct QuotaDegrades {
 
         private struct TestClock: Clock {
@@ -81,6 +82,7 @@ struct NotificationsSpec {
     // MARK: - #22: Quota stays the same → no notification
 
     @Suite("Scenario: Quota stays the same")
+    @MainActor
     struct QuotaUnchanged {
 
         private struct TestClock: Clock {
@@ -130,6 +132,7 @@ struct NotificationsSpec {
     // MARK: - Cross-behavior: One provider failure does not affect others
 
     @Suite("Scenario: Provider isolation")
+    @MainActor
     struct ProviderIsolation {
 
         private struct TestClock: Clock {

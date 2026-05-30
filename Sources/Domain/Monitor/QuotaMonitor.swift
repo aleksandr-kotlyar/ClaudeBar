@@ -12,8 +12,15 @@ public enum MonitoringEvent: Sendable {
 /// The main domain service that coordinates quota monitoring across AI providers.
 /// Providers are rich domain models that own their own snapshots.
 /// QuotaMonitor coordinates refreshes and alerts users when status changes.
+///
+/// Isolated to `@MainActor` because its `@Observable` state (`isMonitoring`,
+/// `selectedProviderId`, …) is consumed by SwiftUI. This keeps the background
+/// monitoring loop from mutating observable state off the main actor — the
+/// crash in issue #182 — and lets the compiler reject any future off-main
+/// mutation. Mirrors `SessionMonitor`, which is already `@MainActor @Observable`.
+@MainActor
 @Observable
-public final class QuotaMonitor: @unchecked Sendable {
+public final class QuotaMonitor {
     /// The providers repository (internal - access via delegation methods)
     private let providers: any AIProviderRepository
 
@@ -267,6 +274,16 @@ public final class QuotaMonitor: @unchecked Sendable {
 
     // MARK: - Continuous Monitoring
 
+    /// The hard lower bound on the monitoring interval. Background refresh must
+    /// never poll faster than once a minute (energy — issue #67).
+    public static let minimumInterval: Duration = .seconds(60)
+
+    /// Clamps a requested interval to the 1-minute floor. Exposed so the floor
+    /// can be unit-tested directly and so every caller funnels through one rule.
+    public static func clampedInterval(_ interval: Duration) -> Duration {
+        max(interval, minimumInterval)
+    }
+
     /// Refreshes only the currently selected provider.
     public func refreshSelected() async {
         await refresh(providerId: selectedProviderId)
@@ -275,6 +292,7 @@ public final class QuotaMonitor: @unchecked Sendable {
     /// Starts continuous monitoring at the specified interval.
     /// By default, refreshes the currently selected provider each cycle to minimize energy usage.
     /// When provider IDs are supplied, refreshes that de-duplicated provider set each cycle.
+    /// The interval is clamped to a 1-minute floor regardless of the value passed.
     /// Returns an AsyncStream of monitoring events.
     public func startMonitoring(
         interval: Duration = .seconds(60),
@@ -284,6 +302,10 @@ public final class QuotaMonitor: @unchecked Sendable {
         monitoringTask?.cancel()
 
         isMonitoring = true
+
+        // Enforce the 1-minute floor here too, so no caller or persisted value
+        // can drive a faster poll regardless of how startMonitoring is reached.
+        let effectiveInterval = Self.clampedInterval(interval)
 
         return AsyncStream { continuation in
             let task = Task {
@@ -296,7 +318,7 @@ public final class QuotaMonitor: @unchecked Sendable {
                     continuation.yield(.refreshed)
 
                     do {
-                        try await clock.sleep(for: interval)
+                        try await clock.sleep(for: effectiveInterval)
                     } catch {
                         break
                     }

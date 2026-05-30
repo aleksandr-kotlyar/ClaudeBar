@@ -5,21 +5,48 @@ import Mockable
 @testable import Infrastructure
 
 @Suite
+@MainActor
 struct QuotaMonitorTests {
     private struct TestClock: Clock {
         func sleep(for duration: Duration) async throws {}
         func sleep(nanoseconds: UInt64) async throws {}
     }
 
-    private struct SuspendingClock: Clock {
+    /// A clock whose `sleep` suspends until the surrounding task is cancelled,
+    /// rather than waiting real wall-clock time. The monitoring loop runs exactly
+    /// one cycle and then parks here; `stopMonitoring()` (or stream termination)
+    /// cancels the loop's task, resuming this with a `CancellationError` so the
+    /// loop ends at once. Replacing the old real `Task.sleep(60s)` removes the
+    /// timing race that made the continuous-monitoring tests flake under load.
+    private final class SuspendingClock: Clock, @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Void, Error>?
+        private var cancelled = false
+
         func sleep(for duration: Duration) async throws {
-            // Keep the monitoring loop suspended after its first tick; stopMonitoring()
-            // cancels the task and interrupts this long sleep before the test waits.
-            try await Task.sleep(nanoseconds: 60_000_000_000)
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    lock.lock()
+                    if cancelled {
+                        lock.unlock()
+                        cont.resume(throwing: CancellationError())
+                    } else {
+                        continuation = cont
+                        lock.unlock()
+                    }
+                }
+            } onCancel: {
+                lock.lock()
+                cancelled = true
+                let cont = continuation
+                continuation = nil
+                lock.unlock()
+                cont?.resume(throwing: CancellationError())
+            }
         }
 
         func sleep(nanoseconds: UInt64) async throws {
-            try await Task.sleep(nanoseconds: nanoseconds)
+            try await sleep(for: .nanoseconds(Int64(nanoseconds)))
         }
     }
 
@@ -596,6 +623,33 @@ struct QuotaMonitorTests {
 
         // Then - Stream should finish quickly after stop
         #expect(eventCount <= 2)
+    }
+
+    @Test
+    func `startMonitoring keeps observable state on the main actor`() async {
+        // Reading and writing isMonitoring here compiles only because both this
+        // suite and QuotaMonitor are @MainActor — the structural guard against
+        // the #182 off-main mutation. The flow asserts the flag flips on, then off.
+        let settings = makeSettingsRepository()
+        let provider = ClaudeProvider(probe: CountingUsageProbe(providerId: "claude"), settingsRepository: settings)
+        let monitor = makeSuspendingMonitor(providers: AIProviders(providers: [provider]))
+
+        let stream = monitor.startMonitoring(interval: .seconds(60))
+        #expect(monitor.isMonitoring == true)
+
+        for await _ in stream.prefix(1) {}
+        monitor.stopMonitoring()
+
+        #expect(monitor.isMonitoring == false)
+    }
+
+    @Test
+    func `clampedInterval enforces the one minute floor`() {
+        #expect(QuotaMonitor.clampedInterval(.seconds(5)) == .seconds(60))
+        #expect(QuotaMonitor.clampedInterval(.zero) == .seconds(60))
+        #expect(QuotaMonitor.clampedInterval(.seconds(60)) == .seconds(60))
+        #expect(QuotaMonitor.clampedInterval(.seconds(300)) == .seconds(300))
+        #expect(QuotaMonitor.clampedInterval(.seconds(900)) == .seconds(900))
     }
 
     // MARK: - Provider Collections

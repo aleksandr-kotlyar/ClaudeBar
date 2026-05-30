@@ -117,11 +117,6 @@ struct MenuContentView: View {
                 hasRequestedNotificationPermission = true
                 let granted = await quotaAlerter.requestPermission()
                 AppLog.notifications.info("Alert permission request result: \(granted ? "granted" : "denied")")
-
-                // Start background sync on first app launch (only once)
-                if settings.backgroundSyncEnabled && !monitor.isMonitoring {
-                    startBackgroundSync()
-                }
             }
 
             // Show header and tabs immediately
@@ -143,74 +138,14 @@ struct MenuContentView: View {
             #endif
         }
         .onChange(of: selectedProviderId) { _, newProviderId in
-            // Refresh when user switches provider
+            // Refresh immediately when the user switches provider while the
+            // dropdown is open. Periodic background refresh is owned by the
+            // app-lifetime loop in ClaudeBarApp, which restarts itself when the
+            // selected or menu-bar provider changes.
             Task {
                 await refresh(providerId: newProviderId)
             }
-            if settings.backgroundSyncEnabled && (settings.menuBarPercentageEnabled || settings.menuBarDurationEnabled) {
-                restartBackgroundSync()
-            }
         }
-        .onChange(of: settings.backgroundSyncEnabled) { _, enabled in
-            // React to background sync toggle
-            if enabled {
-                startBackgroundSync()
-            } else {
-                stopBackgroundSync()
-            }
-        }
-        .onChange(of: settings.backgroundSyncInterval) { _, _ in
-            // Restart sync with new interval
-            if settings.backgroundSyncEnabled {
-                restartBackgroundSync()
-            }
-        }
-        .onChange(of: settings.menuBarPercentageEnabled) { _, _ in
-            if settings.backgroundSyncEnabled {
-                restartBackgroundSync()
-            }
-        }
-        .onChange(of: settings.menuBarDurationEnabled) { _, _ in
-            if settings.backgroundSyncEnabled {
-                restartBackgroundSync()
-            }
-        }
-        .onChange(of: settings.menuBarPercentageProviderId) { _, _ in
-            if settings.backgroundSyncEnabled && (settings.menuBarPercentageEnabled || settings.menuBarDurationEnabled) {
-                restartBackgroundSync()
-            }
-        }
-    }
-
-    // MARK: - Background Sync Control
-
-    private func startBackgroundSync() {
-        let interval = Duration.seconds(settings.backgroundSyncInterval)
-        AppLog.monitor.info("Starting background sync (interval: \(settings.backgroundSyncInterval)s)")
-        Task {
-            let stream = monitor.startMonitoring(interval: interval, providerIds: backgroundSyncProviderIds)
-            for await _ in stream {
-                // Events handled internally by QuotaMonitor
-            }
-        }
-    }
-
-    private var backgroundSyncProviderIds: [String]? {
-        guard settings.menuBarPercentageEnabled || settings.menuBarDurationEnabled else { return nil }
-        return [
-            selectedProviderId,
-            settings.menuBarPercentageProviderId,
-        ]
-    }
-
-    private func stopBackgroundSync() {
-        AppLog.monitor.info("Stopping background sync")
-        monitor.stopMonitoring()
-    }
-
-    private func restartBackgroundSync() {
-        stopBackgroundSync()
-        startBackgroundSync()
     }
 
     // MARK: - Background Orbs

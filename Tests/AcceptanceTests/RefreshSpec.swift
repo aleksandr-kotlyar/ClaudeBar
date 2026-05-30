@@ -32,6 +32,7 @@ struct RefreshSpec {
     // MARK: - #15: Successful refresh
 
     @Suite("Scenario: Successful refresh")
+    @MainActor
     struct SuccessfulRefresh {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -103,6 +104,7 @@ struct RefreshSpec {
     // MARK: - #18: Background sync
 
     @Suite("Scenario: Background sync")
+    @MainActor
     struct BackgroundSync {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}

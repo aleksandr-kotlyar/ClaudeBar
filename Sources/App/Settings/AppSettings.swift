@@ -104,6 +104,28 @@ public final class AppSettings {
         }
     }
 
+    /// The background-refresh cadence (Off / 1 / 5 / 15 min) as a single
+    /// picker-friendly value. Computed over the legacy `backgroundSyncEnabled`
+    /// + `backgroundSyncInterval` pair so `settings.json` stays backward
+    /// compatible — "Off" maps to `backgroundSyncEnabled == false`, the others
+    /// to enabled + 60/300/900s. Setting it persists both underlying keys.
+    public var refreshInterval: RefreshInterval {
+        get {
+            RefreshInterval.migrating(
+                enabled: backgroundSyncEnabled,
+                storedSeconds: backgroundSyncInterval
+            )
+        }
+        set {
+            // Set the interval before flipping enabled so anything observing the
+            // change sees the final cadence in a single pass.
+            if let seconds = newValue.seconds {
+                backgroundSyncInterval = TimeInterval(seconds)
+            }
+            backgroundSyncEnabled = newValue.isEnabled
+        }
+    }
+
     // MARK: - Claude API Budget Settings
 
     /// Whether Claude API budget tracking is enabled

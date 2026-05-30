@@ -32,6 +32,7 @@ struct MenuBarSpec {
     // MARK: - #2: Overall status reflects worst provider
 
     @Suite("Scenario: Overall status calculation")
+    @MainActor
     struct OverallStatus {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}

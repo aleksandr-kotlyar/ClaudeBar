@@ -24,6 +24,7 @@ struct ClaudeConfigSpec {
     // MARK: - #28: Switch Claude to API mode
 
     @Suite("Scenario: Switch probe mode")
+    @MainActor
     struct SwitchProbeMode {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
@@ -218,6 +219,7 @@ struct ClaudeConfigSpec {
     // MARK: - #29: API mode credential status
 
     @Suite("Scenario: API mode credential availability")
+    @MainActor
     struct CredentialStatus {
 
         @Test
@@ -237,6 +239,7 @@ struct ClaudeConfigSpec {
     // MARK: - #30: Expired session error
 
     @Suite("Scenario: Expired session shows user-friendly error")
+    @MainActor
     struct SessionExpired {
         private struct TestClock: Clock {
             func sleep(for duration: Duration) async throws {}
