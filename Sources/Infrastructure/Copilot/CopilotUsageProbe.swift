@@ -191,7 +191,7 @@ public struct CopilotUsageProbe: UsageProbe {
         }
 
         // Use configured monthly limit or default to 50 (Free/Pro tier AI credits)
-        // Note: 2000 is code completions limit, not premium requests limit
+        // Note: 2000 is code completions limit, not AI credits limit
         var monthlyLimit: Double = Double(settingsRepository.copilotMonthlyLimit() ?? 50)
         
         // Guard against division by zero (ensure monthlyLimit is positive)

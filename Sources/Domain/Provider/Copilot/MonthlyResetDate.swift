@@ -7,7 +7,10 @@ public enum MonthlyResetDate {
     /// If `referenceDate` is exactly 00:00:00 UTC on the 1st, returns the 1st of the *next* month.
     public static func nextMonthlyResetDate(referenceDate: Date = Date()) -> Date {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
+        guard let utc = TimeZone(identifier: "UTC") else {
+            return referenceDate
+        }
+        calendar.timeZone = utc
         let comps = calendar.dateComponents([.year, .month], from: referenceDate)
         guard comps.year != nil, comps.month != nil,
               let startOfCurrent = calendar.date(from: comps),
