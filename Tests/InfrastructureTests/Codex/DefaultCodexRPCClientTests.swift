@@ -217,6 +217,19 @@ struct DefaultCodexRPCClientTests {
     }
 
     @Test
+    func `formatResetTime shows days, hours and minutes`() {
+        let mockTransport = MockRPCTransport()
+        let client = DefaultCodexRPCClient(transport: mockTransport)
+
+        let futureDate = Date().addingTimeInterval(2 * 86400 + 3 * 3600 + 30 * 60) // 2d 3h 30m
+        let result = client.formatResetTime(futureDate)
+
+        #expect(result.contains("Resets in"))
+        #expect(result.contains("2d"))
+        #expect(result.contains("3h"))
+    }
+
+    @Test
     func `formatResetTime shows only minutes when less than an hour`() {
         let mockTransport = MockRPCTransport()
         let client = DefaultCodexRPCClient(transport: mockTransport)

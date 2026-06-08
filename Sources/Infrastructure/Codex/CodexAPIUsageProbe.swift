@@ -331,10 +331,13 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         let seconds = date.timeIntervalSinceNow
         guard seconds > 0 else { return nil }
 
-        let hours = Int(seconds / 3600)
+        let days = Int(seconds / 86400)
+        let hours = Int((seconds.truncatingRemainder(dividingBy: 86400)) / 3600)
         let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
 
-        if hours > 0 {
+        if days > 0 {
+            return "Resets in \(days)d \(hours)h \(minutes)m"
+        } else if hours > 0 {
             return "Resets in \(hours)h \(minutes)m"
         } else if minutes > 0 {
             return "Resets in \(minutes)m"

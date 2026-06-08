@@ -230,10 +230,13 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
         let interval = date.timeIntervalSinceNow
         if interval <= 0 { return "Resets soon" }
 
-        let hours = Int(interval / 3600)
+        let days = Int(interval / 86400)
+        let hours = Int((interval.truncatingRemainder(dividingBy: 86400)) / 3600)
         let minutes = Int((interval.truncatingRemainder(dividingBy: 3600)) / 60)
 
-        if hours > 0 {
+        if days > 0 {
+            return "Resets in \(days)d \(hours)h \(minutes)m"
+        } else if hours > 0 {
             return "Resets in \(hours)h \(minutes)m"
         } else {
             return "Resets in \(minutes)m"
