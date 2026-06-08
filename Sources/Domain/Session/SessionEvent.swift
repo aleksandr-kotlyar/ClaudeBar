@@ -27,6 +27,19 @@ public struct SessionEvent: Sendable, Equatable, Codable {
         self.receivedAt = receivedAt
     }
 
+    /// Whether this event originates from ClaudeBar's own background quota probe.
+    ///
+    /// ClaudeBar refreshes quotas by spawning `claude /usage` in
+    /// `<AppSupport>/ClaudeBar/Probe`. Claude Code fires SessionStart/SessionEnd
+    /// hooks for that run, which loop back into ClaudeBar's own hook server. These
+    /// events must be ignored so routine background polling doesn't pollute the
+    /// recent-sessions list or fire "Claude Code Finished: Probe" notifications.
+    /// (issue #172)
+    public var isClaudeBarProbe: Bool {
+        let components = ((cwd as NSString).standardizingPath as NSString).pathComponents
+        return Array(components.suffix(2)) == ["ClaudeBar", "Probe"]
+    }
+
     /// The types of hook events from Claude Code
     public enum EventName: String, Sendable, Equatable, Codable {
         case sessionStart = "SessionStart"

@@ -217,6 +217,10 @@ struct ClaudeBarApp: App {
                 let events = try await hookServer.start()
                 AppLog.hooks.info("Hook server started, listening for events")
                 for await event in events {
+                    // Ignore ClaudeBar's own background quota probe so routine
+                    // polling doesn't spam "Claude Code Finished: Probe"
+                    // notifications or pollute the recent-sessions list. (issue #172)
+                    guard !event.isClaudeBarProbe else { continue }
                     await sessionMonitor.processEvent(event)
                     await sendSessionNotification(for: event)
                 }

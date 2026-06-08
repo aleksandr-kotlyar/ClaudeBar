@@ -59,6 +59,50 @@ struct SessionEventTests {
     }
 
     @Test
+    func `event from probe working directory is flagged as ClaudeBar probe`() {
+        let event = SessionEvent(
+            sessionId: "probe-1",
+            eventName: .sessionEnd,
+            cwd: "/Users/test/Library/Application Support/ClaudeBar/Probe"
+        )
+
+        #expect(event.isClaudeBarProbe)
+    }
+
+    @Test
+    func `event with trailing slash on probe directory is flagged as ClaudeBar probe`() {
+        let event = SessionEvent(
+            sessionId: "probe-2",
+            eventName: .sessionStart,
+            cwd: "/Users/test/Library/Application Support/ClaudeBar/Probe/"
+        )
+
+        #expect(event.isClaudeBarProbe)
+    }
+
+    @Test
+    func `event from a real project directory is not flagged as ClaudeBar probe`() {
+        let event = SessionEvent(
+            sessionId: "real-1",
+            eventName: .sessionEnd,
+            cwd: "/Users/test/code/my-project"
+        )
+
+        #expect(!event.isClaudeBarProbe)
+    }
+
+    @Test
+    func `event from a directory merely named Probe is not flagged`() {
+        let event = SessionEvent(
+            sessionId: "real-2",
+            eventName: .sessionEnd,
+            cwd: "/Users/test/code/Probe"
+        )
+
+        #expect(!event.isClaudeBarProbe)
+    }
+
+    @Test
     func `all event names have correct raw values`() {
         #expect(SessionEvent.EventName.sessionStart.rawValue == "SessionStart")
         #expect(SessionEvent.EventName.sessionEnd.rawValue == "SessionEnd")
