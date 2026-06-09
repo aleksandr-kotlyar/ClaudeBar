@@ -31,14 +31,21 @@ public struct ClaudeDailyUsageAnalyzer: DailyUsageAnalyzing, Sendable {
 
         // Parse files and collect records
         let parser = SessionJSONLParser()
-        var allRecords: [TokenUsageRecord] = []
+        var parsedRecords: [TokenUsageRecord] = []
         for fileURL in jsonlFiles {
             if let records = try? parser.parse(fileURL: fileURL) {
-                allRecords.append(contentsOf: records)
+                parsedRecords.append(contentsOf: records)
             }
         }
 
-        AppLog.probes.info("DailyUsage: found \(allRecords.count) token records")
+        // Claude Code repeats the same `message.usage` across streamed content blocks,
+        // parallel tool calls, and resumed/branched session files. Collapse duplicates by
+        // (message.id, requestId) — keeping the last/most-complete entry — before summing,
+        // so cost/token totals match `claude /cost` instead of inflating several-fold.
+        // See docs/plans/2026-06-09-daily-usage-dedup-design.md and issue #207.
+        let allRecords = deduplicateLastWins(parsedRecords)
+
+        AppLog.probes.info("DailyUsage: \(parsedRecords.count) raw records, \(allRecords.count) after dedup")
 
         // Partition into today and yesterday
         let todayRecords = allRecords.filter { record in
@@ -58,6 +65,38 @@ public struct ClaudeDailyUsageAnalyzer: DailyUsageAnalyzing, Sendable {
     }
 
     // MARK: - Private
+
+    /// Dedup key for a usage record. A record carrying both `messageId` and `requestId`
+    /// groups by that composite; records missing either are kept distinct (unique sentinel)
+    /// so they are never merged with unrelated records.
+    private enum DedupKey: Hashable {
+        case composite(String, String)
+        case unkeyed(Int)
+    }
+
+    /// Collapse records sharing a `(messageId, requestId)` to a single entry, keeping the
+    /// **last** occurrence in input order. Streaming snapshots accumulate `output_tokens`,
+    /// so the final line holds the complete, billed value (last-wins == max-wins). Output
+    /// order preserves first-seen position for stable downstream aggregation.
+    private func deduplicateLastWins(_ records: [TokenUsageRecord]) -> [TokenUsageRecord] {
+        var lastByKey: [DedupKey: TokenUsageRecord] = [:]
+        var order: [DedupKey] = []
+        var sentinel = 0
+
+        for record in records {
+            let key: DedupKey
+            if let id = record.messageId, let req = record.requestId {
+                key = .composite(id, req)
+            } else {
+                key = .unkeyed(sentinel)
+                sentinel += 1
+            }
+            if lastByKey[key] == nil { order.append(key) }
+            lastByKey[key] = record
+        }
+
+        return order.compactMap { lastByKey[$0] }
+    }
 
     /// Only find JSONL files modified since the given date (performance optimization).
     private func findRecentJSONLFiles(in directory: URL, since: Date) -> [URL] {

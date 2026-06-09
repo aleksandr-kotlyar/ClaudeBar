@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Daily Usage cost & token cards no longer overcount. Claude Code writes the same usage
+  multiple times (streamed content blocks, parallel tool calls, resumed/branched sessions);
+  totals are now deduplicated by message ID to match `claude /cost`. Displayed numbers will
+  drop accordingly — this corrects prior inflation (often ~2–4×), not a loss of data. (#207)
+
 ---
 
 ## [0.4.67] - 2026-06-09

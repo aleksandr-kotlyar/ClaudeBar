@@ -33,6 +33,8 @@ struct ModelPricingTests {
 
     @Test func `calculates cost for token usage record`() {
         let record = TokenUsageRecord(
+            messageId: nil,
+            requestId: nil,
             model: "claude-sonnet-4-6",
             inputTokens: 1_000_000, // $3
             outputTokens: 100_000,  // $1.50
@@ -46,6 +48,8 @@ struct ModelPricingTests {
 
     @Test func `calculates cost including cache tokens`() {
         let record = TokenUsageRecord(
+            messageId: nil,
+            requestId: nil,
             model: "claude-sonnet-4-6",
             inputTokens: 0,
             outputTokens: 0,
@@ -60,6 +64,8 @@ struct ModelPricingTests {
     @Test func `calculates cache savings as input price minus cache read price`() {
         // Sonnet: input $3/M, cache_read $0.30/M → save $2.70 per 1M cache reads
         let record = TokenUsageRecord(
+            messageId: nil,
+            requestId: nil,
             model: "claude-sonnet-4-6",
             inputTokens: 0,
             outputTokens: 0,
@@ -73,6 +79,8 @@ struct ModelPricingTests {
 
     @Test func `cache savings is zero when no cache reads`() {
         let record = TokenUsageRecord(
+            messageId: nil,
+            requestId: nil,
             model: "claude-sonnet-4-6",
             inputTokens: 1_000_000,
             outputTokens: 0,
@@ -86,6 +94,8 @@ struct ModelPricingTests {
     @Test func `cache savings scales with cache read tokens`() {
         // Opus 4.6: input $5/M, cache_read $0.50/M → save $4.50 per 1M
         let record = TokenUsageRecord(
+            messageId: nil,
+            requestId: nil,
             model: "claude-opus-4-6",
             inputTokens: 0,
             outputTokens: 0,

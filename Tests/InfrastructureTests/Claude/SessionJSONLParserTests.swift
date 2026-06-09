@@ -62,6 +62,26 @@ struct SessionJSONLParserTests {
         #expect(records.count == 1)
     }
 
+    @Test func `captures messageId and requestId for deduplication`() {
+        let jsonl = """
+        {"type":"assistant","requestId":"req_011Cax","message":{"id":"msg_01Dso","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":5}},"timestamp":"2026-03-11T10:00:00.000Z"}
+        """
+        let records = parser.parse(content: jsonl)
+        #expect(records.count == 1)
+        #expect(records[0].messageId == "msg_01Dso")
+        #expect(records[0].requestId == "req_011Cax")
+    }
+
+    @Test func `leaves identity fields nil when absent`() {
+        let jsonl = """
+        {"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":5}},"timestamp":"2026-03-11T10:00:00.000Z"}
+        """
+        let records = parser.parse(content: jsonl)
+        #expect(records.count == 1)
+        #expect(records[0].messageId == nil)
+        #expect(records[0].requestId == nil)
+    }
+
     @Test func `parses ISO8601 timestamp correctly`() {
         let jsonl = """
         {"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":5}},"timestamp":"2026-03-11T10:30:45.123Z"}
