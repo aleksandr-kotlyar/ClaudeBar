@@ -714,9 +714,12 @@ struct MenuContentView: View {
     /// Refresh all enabled providers concurrently
     private func refreshAllEnabled() async {
         await withTaskGroup(of: Void.self) { group in
-            for provider in monitor.enabledProviders {
+            // The `isSyncing` guard reads main-actor provider state, so evaluate
+            // it here on the main actor (this closure inherits the caller's
+            // isolation). Each child task then awaits `refresh()`, whose heavy
+            // probe work still suspends off-main, keeping the refreshes concurrent.
+            for provider in monitor.enabledProviders where !provider.isSyncing {
                 group.addTask {
-                    guard !provider.isSyncing else { return }
                     do {
                         try await provider.refresh()
                     } catch {

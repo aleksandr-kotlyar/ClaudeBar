@@ -7,6 +7,10 @@ import Domain
 /// Each concrete provider implements this to own its visual representation.
 /// This keeps visual properties with the provider (rich domain) while
 /// separating SwiftUI dependencies from the Domain layer.
+///
+/// `@MainActor` because the conformers are now main-actor-isolated providers and every
+/// witness is SwiftUI-facing (`Color`/`LinearGradient`, read from views on the main actor).
+@MainActor
 public protocol ProviderVisualIdentity {
     /// SF Symbol icon name for this provider
     var symbolIcon: String { get }

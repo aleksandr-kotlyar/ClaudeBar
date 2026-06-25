@@ -4,8 +4,9 @@ import Observation
 /// Mistral AI provider - a rich domain model.
 /// Observable class with its own state (isSyncing, snapshot, error).
 /// Owns its probe and manages its own data lifecycle.
+@MainActor
 @Observable
-public final class MistralProvider: AIProvider, @unchecked Sendable {
+public final class MistralProvider: AIProvider {
     // MARK: - Identity (Protocol Requirement)
 
     public let id: String = "mistral"

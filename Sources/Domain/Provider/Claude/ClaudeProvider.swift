@@ -4,8 +4,9 @@ import Observation
 /// Claude AI provider - a rich domain model.
 /// Observable class with its own state (isSyncing, snapshot, error).
 /// Supports dual probe modes: CLI (default) and API.
+@MainActor
 @Observable
-public final class ClaudeProvider: AIProvider, @unchecked Sendable {
+public final class ClaudeProvider: AIProvider {
     // MARK: - Identity (Protocol Requirement)
 
     public let id: String = "claude"

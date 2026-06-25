@@ -17,6 +17,7 @@ struct ActionBarSpec {
     // MARK: - #24: Dashboard URLs
 
     @Suite("Scenario: Dashboard opens correct URL per provider")
+    @MainActor
     struct DashboardURLs {
 
         private static func makeSettings() -> MockProviderSettingsRepository {
@@ -76,6 +77,7 @@ struct ActionBarSpec {
     // MARK: - #25: Claude guest passes
 
     @Suite("Scenario: Share Claude Code guest passes")
+    @MainActor
     struct GuestPasses {
 
         @Test

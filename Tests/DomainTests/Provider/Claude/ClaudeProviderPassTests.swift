@@ -4,6 +4,7 @@ import Mockable
 @testable import Domain
 
 @Suite
+@MainActor
 struct ClaudeProviderPassTests {
 
     /// Creates a mock settings repository that returns true for all providers
