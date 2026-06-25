@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.4.69] - 2026-06-25
+
 ### Fixed
 - Menu-bar usage text no longer freezes or disappears after system sleep. SwiftUI's
   `MenuBarExtra` label hosting can permanently stop receiving updates after wake (the
@@ -798,7 +802,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Menu bar interface with quota display
 - Automatic refresh every 5 minutes
 
-[Unreleased]: https://github.com/tddworks/ClaudeBar/compare/v0.4.68...HEAD
+[Unreleased]: https://github.com/tddworks/ClaudeBar/compare/v0.4.69...HEAD
+[0.4.69]: https://github.com/tddworks/ClaudeBar/compare/v0.4.68...v0.4.69
 [0.4.68]: https://github.com/tddworks/ClaudeBar/compare/v0.4.67...v0.4.68
 [0.4.67]: https://github.com/tddworks/ClaudeBar/compare/v0.4.66...v0.4.67
 [0.4.66]: https://github.com/tddworks/ClaudeBar/compare/v0.4.65...v0.4.66
