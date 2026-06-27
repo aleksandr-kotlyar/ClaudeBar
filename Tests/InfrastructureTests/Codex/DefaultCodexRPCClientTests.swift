@@ -278,7 +278,7 @@ struct DefaultCodexRPCClientTests {
         """)
 
         let client = DefaultCodexRPCClient(executable: "codex", cliExecutor: mockExecutor)
-        client.transportFactory = { _, _ in mockTransport }
+        client.transportFactory = { _, _, _ in mockTransport }
 
         // When - fetch succeeds, shutdown is NOT called (simulates if caller forgets)
         _ = try await client.fetchRateLimits()
@@ -299,7 +299,7 @@ struct DefaultCodexRPCClientTests {
             .willThrow(ProbeError.executionFailed("TTY not available"))
 
         let client = DefaultCodexRPCClient(executable: "codex", cliExecutor: mockExecutor)
-        client.transportFactory = { _, _ in mockTransport }
+        client.transportFactory = { _, _, _ in mockTransport }
 
         // When - fetch throws
         await #expect(throws: ProbeError.self) {
@@ -308,5 +308,81 @@ struct DefaultCodexRPCClientTests {
 
         // Then - transport must still be closed despite the error
         verify(mockTransport).close().called(.atLeastOnce)
+    }
+
+    @Test
+    func `fetchRateLimits passes configured CODEX_HOME to RPC transport`() async throws {
+        // Given
+        let mockTransport = MockRPCTransport()
+        let mockExecutor = MockCLIExecutor()
+        setupMockTransport(
+            mockTransport,
+            rateLimitsResponse: """
+            {"id":2,"result":{"rateLimits":{"planType":"pro","primary":{"usedPercent":30,"resetsAt":1735000000}}}
+            """
+        )
+        var capturedEnvironment: [String: String]?
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-rpc-home", isDirectory: true)
+            .path
+
+        let client = DefaultCodexRPCClient(
+            executable: "codex",
+            cliExecutor: mockExecutor,
+            codexHomePath: codexHome
+        )
+        client.transportFactory = { _, _, environment in
+            capturedEnvironment = environment
+            return mockTransport
+        }
+
+        // When
+        _ = try await client.fetchRateLimits()
+
+        // Then
+        #expect(capturedEnvironment?["CODEX_HOME"] == codexHome)
+    }
+
+    @Test
+    func `fetchRateLimits passes CODEX_HOME to TTY fallback`() async throws {
+        // Given
+        let mockTransport = MockRPCTransport()
+        let mockExecutor = MockCLIExecutor()
+        given(mockTransport).send(.any).willReturn(())
+        given(mockTransport).receive().willReturn(Data("{\"id\":1}".utf8), Data("{\"id\":2,\"error\":{\"message\":\"no-rate-limits\"}}".utf8))
+        given(mockTransport).close().willReturn(())
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-tty-home", isDirectory: true)
+            .path
+        let client = DefaultCodexRPCClient(
+            executable: "codex",
+            cliExecutor: mockExecutor,
+            codexHomePath: codexHome
+        )
+        given(
+            mockExecutor.execute(
+                binary: .any,
+                args: .value(["-s", "read-only", "-a", "untrusted"]),
+                input: .value("/status\n"),
+                timeout: .value(20.0),
+                workingDirectory: .any,
+                autoResponses: .any,
+                environment: .value(["CODEX_HOME": codexHome])
+            )
+        ).willReturn(CLIResult(output: "5h limit: 99% left\nWeekly limit: 98% left", exitCode: 0))
+
+        // When
+        _ = try await client.fetchRateLimits()
+
+        // Then
+        verify(mockExecutor).execute(
+            binary: .any,
+            args: .value(["-s", "read-only", "-a", "untrusted"]),
+            input: .value("/status\n"),
+            timeout: .value(20.0),
+            workingDirectory: .any,
+            autoResponses: .any,
+            environment: .value(["CODEX_HOME": codexHome])
+        ).called(.exactly(1))
     }
 }

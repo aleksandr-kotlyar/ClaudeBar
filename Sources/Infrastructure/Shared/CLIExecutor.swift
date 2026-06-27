@@ -28,12 +28,14 @@ public protocol CLIExecutor: Sendable {
     ///   - timeout: Maximum time to wait
     ///   - workingDirectory: Directory to run in (nil = inherited)
     ///   - autoResponses: Automatic responses to prompts (prompt text → response to send)
+    ///   - environment: Optional environment overrides for the subprocess
     func execute(
         binary: String,
         args: [String],
         input: String?,
         timeout: TimeInterval,
         workingDirectory: URL?,
-        autoResponses: [String: String]
+        autoResponses: [String: String],
+        environment: [String: String]? = nil
     ) throws -> CLIResult
 }

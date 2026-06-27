@@ -15,7 +15,8 @@ public struct SimpleCLIExecutor: CLIExecutor {
         input: String?,
         timeout: TimeInterval,
         workingDirectory: URL?,
-        autoResponses: [String: String]
+        autoResponses: [String: String],
+        environment: [String: String]? = nil
     ) throws -> CLIResult {
         guard let binaryPath = locate(binary) else {
             throw ProbeError.cliNotFound(binary)
@@ -32,6 +33,7 @@ public struct SimpleCLIExecutor: CLIExecutor {
         let inputPipe = Pipe()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
+        task.environment = environment
         task.standardInput = inputPipe
         task.standardOutput = outputPipe
         task.standardError = errorPipe

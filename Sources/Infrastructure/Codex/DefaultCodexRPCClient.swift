@@ -7,23 +7,44 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
     private let executable: String
     private let cliExecutor: CLIExecutor
     private let transport: RPCTransport?
+    private let codexHomeDirectory: () -> String
     private var nextID = 1
 
     /// Package-internal: allows tests to inject a mock transport for the production (no-injection) code path.
-    var transportFactory: ((String, [String]) throws -> RPCTransport)?
+    var transportFactory: ((String, [String], [String: String]?) throws -> RPCTransport)?
 
     /// Default initializer - uses real CLI executor and creates transport lazily.
-    public init(executable: String = "codex", cliExecutor: CLIExecutor? = nil) {
+    public init(
+        executable: String = "codex",
+        cliExecutor: CLIExecutor? = nil,
+        codexHomePath: String? = nil,
+        codexHomePathProvider: (() -> String?)? = nil
+    ) {
         self.executable = executable
         self.cliExecutor = cliExecutor ?? DefaultCLIExecutor()
         self.transport = nil
+        self.codexHomeDirectory = Self.makeCodexHomeDirectory(
+            codexHomePath: codexHomePath,
+            fallbackProvider: codexHomePathProvider,
+            homeDirectory: NSHomeDirectory()
+        )
     }
 
     /// Internal initializer for testing with mock transport.
-    init(transport: RPCTransport, cliExecutor: CLIExecutor? = nil) {
+    init(
+        transport: RPCTransport,
+        cliExecutor: CLIExecutor? = nil,
+        codexHomePath: String? = nil,
+        codexHomePathProvider: (() -> String?)? = nil
+    ) {
         self.executable = "codex"
         self.cliExecutor = cliExecutor ?? DefaultCLIExecutor()
         self.transport = transport
+        self.codexHomeDirectory = Self.makeCodexHomeDirectory(
+            codexHomePath: codexHomePath,
+            fallbackProvider: codexHomePathProvider,
+            homeDirectory: NSHomeDirectory()
+        )
     }
 
     public func isAvailable() -> Bool {
@@ -59,10 +80,14 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
             activeTransport = transport
             ownsTransport = false
         } else {
-            let factory = transportFactory ?? { exec, args in
-                try ProcessRPCTransport(executable: exec, arguments: args)
+            let factory = transportFactory ?? { exec, args, environment in
+                try ProcessRPCTransport(executable: exec, arguments: args, environment: environment)
             }
-            activeTransport = try factory(executable, ["-s", "read-only", "-a", "untrusted", "app-server"])
+            activeTransport = try factory(
+                executable,
+                ["-s", "read-only", "-a", "untrusted", "app-server"],
+                resolvedCodexEnvironment()
+            )
             ownsTransport = true
         }
         defer {
@@ -130,7 +155,8 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
             input: "/status\n",
             timeout: 20.0,
             workingDirectory: nil,
-            autoResponses: [:]
+            autoResponses: [:],
+            environment: resolvedCodexEnvironment()
         )
 
         AppLog.probes.debug("Codex TTY raw output:\n\(result.output)")
@@ -247,6 +273,44 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
         transport?.close()
     }
 
+    private func resolveCodexHomeDirectory() -> String {
+        codexHomeDirectory()
+    }
+
+    private static func makeCodexHomeDirectory(
+        codexHomePath: String?,
+        fallbackProvider: (() -> String?)?,
+        homeDirectory: String
+    ) -> () -> String {
+        if let explicitPath = codexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicitPath.isEmpty {
+            let expanded = explicitPath.expandedPath()
+            return { expanded }
+        }
+
+        return { 
+            if let provider = fallbackProvider {
+                if let providerPath = provider() {
+                    let trimmed = providerPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        return trimmed.expandedPath()
+                    }
+                }
+            }
+
+            if let envPath = ProcessInfo.processInfo.environment["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !envPath.isEmpty {
+                return envPath.expandedPath()
+            }
+
+            return (homeDirectory as NSString).appendingPathComponent(".codex")
+        }
+    }
+
+    private func resolvedCodexEnvironment() -> [String: String] {
+        ["CODEX_HOME": resolveCodexHomeDirectory()]
+    }
+
     // MARK: - JSON-RPC
 
     private func request(transport: RPCTransport, method: String, params: [String: Any]? = nil) async throws -> [String: Any] {
@@ -303,5 +367,14 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
             }
             return json
         }
+    }
+}
+
+private extension String {
+    func expandedPath() -> String {
+        guard hasPrefix("~") else {
+            return self
+        }
+        return (self as NSString).expandingTildeInPath
     }
 }

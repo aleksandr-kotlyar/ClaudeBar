@@ -22,7 +22,8 @@ public struct DefaultCLIExecutor: CLIExecutor {
         input: String?,
         timeout: TimeInterval,
         workingDirectory: URL?,
-        autoResponses: [String: String]
+        autoResponses: [String: String],
+        environment: [String: String]? = nil
     ) throws -> CLIResult {
         let runner = InteractiveRunner()
         let options = InteractiveRunner.Options(
@@ -30,7 +31,8 @@ public struct DefaultCLIExecutor: CLIExecutor {
             workingDirectory: workingDirectory,
             arguments: args,
             autoResponses: autoResponses,
-            environmentExclusions: environmentExclusions
+            environmentExclusions: environmentExclusions,
+            environment: environment
         )
 
         let result = try runner.run(binary: binary, input: input ?? "", options: options)

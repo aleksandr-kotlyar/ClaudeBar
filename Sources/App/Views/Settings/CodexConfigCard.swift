@@ -65,7 +65,7 @@ struct CodexConfigCard: View {
             isPresented: $showDeleteCredentialsAlert
         ) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete Codex CLI credentials", role: .destructive) {
+            Button("Delete Codex CLI credentials…", role: .destructive) {
                 deleteCliCredentials()
             }
         } message: {
@@ -108,7 +108,7 @@ struct CodexConfigCard: View {
     private var codexConfigForm: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("PROBE MODE")
+                Text("DATA SOURCE")
                     .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
                     .foregroundStyle(theme.textSecondary)
                     .tracking(0.5)
@@ -120,10 +120,7 @@ struct CodexConfigCard: View {
                 }
                 .pickerStyle(.segmented)
                 .onChange(of: codexProbeMode) { _, newValue in
-                    settings.codex.setCodexProbeMode(newValue)
-                    Task {
-                        await monitor.refresh(providerId: "codex")
-                    }
+                    setCodexProbeMode(newValue)
                     refreshCredentialStatus()
                 }
             }
@@ -136,11 +133,11 @@ struct CodexConfigCard: View {
                         .frame(width: 16)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("RPC Mode")
+                        Text("Use Codex CLI (RPC)")
                             .font(.system(size: 10, weight: .semibold, design: theme.fontDesign))
                             .foregroundStyle(codexProbeMode == .rpc ? theme.textPrimary : theme.textSecondary)
 
-                        Text("Uses codex app-server via JSON-RPC. Default, works with any auth.")
+                        Text("Fetch usage from codex app-server over JSON-RPC.")
                             .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
                             .foregroundStyle(theme.textTertiary)
                     }
@@ -153,119 +150,123 @@ struct CodexConfigCard: View {
                         .frame(width: 16)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("API Mode")
+                        Text("Use Direct API")
                             .font(.system(size: 10, weight: .semibold, design: theme.fontDesign))
                             .foregroundStyle(codexProbeMode == .api ? theme.textPrimary : theme.textSecondary)
 
-                        Text("Calls ChatGPT API directly. Uses Codex OAuth credentials for this binding.")
+                        Text("Call usage API directly through the Codex OAuth credentials below.")
                             .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
                             .foregroundStyle(theme.textTertiary)
                     }
                 }
             }
 
-            if codexProbeMode == .api {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("CODEX HOME")
-                        .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
-                        .foregroundStyle(theme.textSecondary)
-                        .tracking(0.5)
+            Text("CODEX HOME")
+                .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                .foregroundStyle(theme.textSecondary)
+                .tracking(0.5)
 
-                    TextField(
-                        "",
-                        text: $codexHomePathInput,
-                        prompt: Text("~/.codex").foregroundStyle(theme.textTertiary)
+            TextField(
+                "",
+                text: $codexHomePathInput,
+                prompt: Text("~/.codex").foregroundStyle(theme.textTertiary)
+            )
+            .font(.system(size: 12, weight: .medium, design: theme.fontDesign))
+            .foregroundStyle(theme.textPrimary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(theme.glassBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(theme.glassBorder, lineWidth: 1)
                     )
-                    .font(.system(size: 12, weight: .medium, design: theme.fontDesign))
-                    .foregroundStyle(theme.textPrimary)
+            )
+            .onChange(of: codexHomePathInput) { _, newValue in
+                settings.codex.setCodexHomePath(newValue)
+                refreshCredentialStatus()
+            }
+
+            Text("Leave empty to use default `~/.codex`, or set a custom directory or `$CODEX_HOME`.")
+                .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                .foregroundStyle(theme.textTertiary)
+
+            Divider()
+
+            Text("CREDENTIALS")
+                .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                .foregroundStyle(theme.textSecondary)
+                .tracking(0.5)
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: hasCredentials ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(hasCredentials ? theme.statusHealthy : theme.statusWarning)
+
+                Text(hasCredentials ? "OAuth credentials found" : "No OAuth credentials found")
+                    .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                    .foregroundStyle(hasCredentials ? theme.statusHealthy : theme.statusWarning)
+            }
+
+            if !hasCredentials {
+                Text("Run `codex` in terminal to authenticate, then credentials will be available.")
+                    .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
+                    .foregroundStyle(theme.textTertiary)
+            }
+
+            Divider()
+
+            if hasCredentials {
+                Text("DANGER ZONE")
+                    .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                    .foregroundStyle(theme.statusWarning)
+                    .tracking(0.5)
+
+                Text("Use this only to remove `auth.json` from the configured Codex home.")
+                    .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                    .foregroundStyle(theme.textTertiary)
+
+                Button {
+                    showDeleteCredentialsAlert = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10))
+                        Text("Delete Codex CLI credentials…")
+                            .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                    }
+                    .foregroundStyle(theme.statusWarning)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 6)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
                             .fill(theme.glassBackground)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(theme.glassBorder, lineWidth: 1)
+                                    .stroke(theme.statusWarning.opacity(0.5), lineWidth: 1)
                             )
                     )
-                    .onChange(of: codexHomePathInput) { _, newValue in
-                        settings.codex.setCodexHomePath(newValue)
-                        refreshCredentialStatus()
-                    }
-
-                    Text("Leave empty to use default `~/.codex` or set $CODEX_HOME.")
-                        .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
-                        .foregroundStyle(theme.textTertiary)
                 }
-
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: hasCredentials ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(hasCredentials ? theme.statusHealthy : theme.statusWarning)
-
-                    Text(hasCredentials ? "OAuth credentials found" : "No OAuth credentials found")
-                        .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
-                        .foregroundStyle(hasCredentials ? theme.statusHealthy : theme.statusWarning)
-                }
-
-                if !hasCredentials {
-                    Text("Run `codex` in terminal to authenticate, then credentials will be available.")
-                        .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
-                        .foregroundStyle(theme.textTertiary)
-                } else {
-                    HStack(spacing: 8) {
-                        Button {
-                            disconnectCodex()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "link.slash")
-                                    .font(.system(size: 10))
-                                Text("Disconnect Codex API")
-                                    .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
-                            }
-                            .foregroundStyle(theme.accentPrimary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(theme.glassBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(theme.glassBorder, lineWidth: 1)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            showDeleteCredentialsAlert = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 10))
-                                Text("Delete Codex CLI credentials")
-                                    .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
-                            }
-                            .foregroundStyle(theme.statusWarning)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(theme.glassBackground)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(theme.statusWarning.opacity(0.5), lineWidth: 1)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Text("Disconnect Codex API unlinks ClaudeBar from Codex API mode only. To remove terminal auth, use Delete Codex CLI credentials.")
-                        .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
-                        .foregroundStyle(theme.textTertiary)
-                }
+                .buttonStyle(.plain)
             }
+
+            Divider()
+
+            Text("PROBE STATUS")
+                .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                .foregroundStyle(theme.textSecondary)
+                .tracking(0.5)
+
+            Text("Refresh calls use \(codexProbeMode == .api ? "Direct API" : "Codex CLI (RPC)").")
+                .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                .foregroundStyle(theme.textTertiary)
+                .lineLimit(2)
+
+            Text("Switching modes only changes the probe source and does not delete `auth.json`.")
+                .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                .foregroundStyle(theme.textTertiary)
+                .lineLimit(3)
         }
     }
 
@@ -273,20 +274,13 @@ struct CodexConfigCard: View {
         hasCredentials = credentialLoader.loadCredentials() != nil
     }
 
-    private func disconnectCodex() {
-        settings.codex.setCodexProbeMode(.rpc)
-        codexProbeMode = .rpc
-        Task {
-            await monitor.refresh(providerId: "codex")
-        }
-        refreshCredentialStatus()
+    private func setCodexProbeMode(_ mode: CodexProbeMode) {
+        settings.codex.setCodexProbeMode(mode)
+        codexProbeMode = mode
     }
 
     private func deleteCliCredentials() {
         _ = credentialLoader.disconnect()
-        Task {
-            await monitor.refresh(providerId: "codex")
-        }
         refreshCredentialStatus()
     }
 }

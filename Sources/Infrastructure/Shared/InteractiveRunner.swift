@@ -39,19 +39,23 @@ public struct InteractiveRunner: Sendable {
         /// Use this to prevent env vars like `CLAUDE_CODE_OAUTH_TOKEN` from being
         /// inherited by the subprocess, forcing it to use stored credentials instead.
         public var environmentExclusions: [String]
+        /// Optional environment variable overrides to apply for this run.
+        public var environment: [String: String]?
 
         public init(
             timeout: TimeInterval = 20.0,
             workingDirectory: URL? = nil,
             arguments: [String] = [],
             autoResponses: [String: String] = [:],
-            environmentExclusions: [String] = []
+            environmentExclusions: [String] = [],
+            environment: [String: String]? = nil
         ) {
             self.timeout = timeout
             self.workingDirectory = workingDirectory
             self.arguments = arguments
             self.autoResponses = autoResponses
             self.environmentExclusions = environmentExclusions
+            self.environment = environment
         }
     }
 
@@ -212,7 +216,10 @@ public struct InteractiveRunner: Sendable {
         process.standardInput = terminalHandle
         process.standardOutput = terminalHandle
         process.standardError = terminalHandle
-        process.environment = Self.terminalEnvironment(excluding: options.environmentExclusions)
+        process.environment = Self.terminalEnvironment(
+            excluding: options.environmentExclusions,
+            environment: options.environment
+        )
         // Inherit the ambient probe QoS: the background monitoring loop binds
         // `.utility` so the spawned CLI tree runs on efficiency cores / throttled,
         // cutting idle heat (issue #204). Interactive runs stay `.default`.
@@ -395,7 +402,10 @@ public struct InteractiveRunner: Sendable {
     /// Ensures CLI tools behave as they would in a normal terminal.
     /// - Parameter excluding: Environment variable keys to remove from the subprocess.
     ///   Use this to prevent tokens like `CLAUDE_CODE_OAUTH_TOKEN` from being inherited.
-    private static func terminalEnvironment(excluding: [String] = []) -> [String: String] {
+    private static func terminalEnvironment(
+        excluding: [String] = [],
+        environment: [String: String]? = nil
+    ) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         // Remove excluded keys before setting defaults
         for key in excluding {
@@ -407,6 +417,11 @@ public struct InteractiveRunner: Sendable {
         env["COLORTERM"] = env["COLORTERM"] ?? "truecolor"
         env["LANG"] = env["LANG"] ?? "en_US.UTF-8"
         env["CI"] = env["CI"] ?? "0"
+        if let environment {
+            for (key, value) in environment {
+                env[key] = value
+            }
+        }
         return env
     }
 

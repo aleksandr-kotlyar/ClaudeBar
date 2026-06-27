@@ -96,7 +96,7 @@ struct CodexConfigSpec {
         }
 
         @Test
-        func `disconnect should only revert to rpc mode and keep credentials file`() throws {
+        func `switching probe mode to rpc does not remove auth.json`() throws {
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("codex-disconnect-test-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -123,6 +123,7 @@ struct CodexConfigSpec {
             settings.setCodexProbeMode(.rpc)
 
             #expect(settings.codexProbeMode() == .rpc)
+            // Probe mode changes are independent from credential lifecycle.
             #expect(loader.loadCredentials() != nil)
         }
     }

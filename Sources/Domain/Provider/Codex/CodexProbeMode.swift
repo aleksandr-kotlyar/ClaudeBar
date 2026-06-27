@@ -19,9 +19,9 @@ public enum CodexProbeMode: String, Sendable, Equatable, CaseIterable {
     public var displayName: String {
         switch self {
         case .rpc:
-            return "RPC"
+            return "Use Codex CLI (RPC)"
         case .api:
-            return "API"
+            return "Use Direct API"
         }
     }
 
@@ -29,9 +29,9 @@ public enum CodexProbeMode: String, Sendable, Equatable, CaseIterable {
     public var description: String {
         switch self {
         case .rpc:
-            return "Uses codex app-server RPC"
+            return "Uses codex app-server via JSON-RPC."
         case .api:
-            return "Calls ChatGPT API directly"
+            return "Calls ChatGPT API directly."
         }
     }
 }

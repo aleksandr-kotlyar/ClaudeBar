@@ -60,23 +60,25 @@ struct ClaudeBarApp: App {
         // Create all providers with their probes (rich domain models)
         // Each provider manages its own isEnabled state (persisted via ProviderSettingsRepository)
         // Each probe checks isAvailable() for credentials/prerequisites
-        let repository = AIProviders(providers: [
-            ClaudeProvider(
-                cliProbe: ClaudeUsageProbe(),
+            let repository = AIProviders(providers: [
+                ClaudeProvider(
+                    cliProbe: ClaudeUsageProbe(),
                 apiProbe: ClaudeAPIUsageProbe(),
                 passProbe: ClaudePassProbe(),
                 settingsRepository: settingsRepository,
                 dailyUsageAnalyzer: ClaudeDailyUsageAnalyzer()
-            ),
-            CodexProvider(
-                rpcProbe: CodexUsageProbe(),
-                apiProbe: CodexAPIUsageProbe(
-                    credentialLoader: CodexCredentialLoader(
-                        codexHomePath: settingsRepository.codexHomePath()
-                    )
                 ),
-                settingsRepository: settingsRepository
-            ),
+                CodexProvider(
+                    rpcProbe: CodexUsageProbe(
+                        client: DefaultCodexRPCClient(
+                            codexHomePathProvider: { settingsRepository.codexHomePath() }
+                        )
+                    ),
+                    apiProbe: CodexAPIUsageProbe(
+                        settingsRepository: settingsRepository
+                    ),
+                    settingsRepository: settingsRepository
+                ),
             GeminiProvider(probe: GeminiUsageProbe(), settingsRepository: settingsRepository),
             AntigravityProvider(probe: AntigravityUsageProbe(), settingsRepository: settingsRepository),
             ZaiProvider(
