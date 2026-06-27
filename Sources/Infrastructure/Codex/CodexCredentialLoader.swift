@@ -39,17 +39,24 @@ public struct CodexCredentialResult: @unchecked Sendable {
 /// ```
 public struct CodexCredentialLoader: Sendable {
     private let homeDirectory: String
+    private let codexHomeDirectory: String?
 
     /// Refresh age threshold: 8 days (matching Codex JS reference)
     private static let refreshAgeMs: Double = 8 * 24 * 60 * 60 * 1000
 
-    public init(homeDirectory: String = NSHomeDirectory()) {
+    public init(homeDirectory: String = NSHomeDirectory(), codexHomeDirectory: String? = nil) {
         self.homeDirectory = homeDirectory
+        self.codexHomeDirectory = codexHomeDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The path to the auth file.
     public var authFilePath: String {
-        (homeDirectory as NSString).appendingPathComponent(".codex/auth.json")
+        if let codexHomeDirectory, !codexHomeDirectory.isEmpty {
+            return (NSString(string: codexHomeDirectory).expandingTildeInPath as NSString)
+                .appendingPathComponent("auth.json")
+        }
+
+        return (homeDirectory as NSString).appendingPathComponent(".codex/auth.json")
     }
 
     /// Loads credentials from `~/.codex/auth.json`.
@@ -149,5 +156,33 @@ public struct CodexCredentialLoader: Sendable {
         } catch {
             AppLog.credentials.error("Failed to save Codex credentials to file: \(error.localizedDescription)")
         }
+    }
+}
+
+
+/// Filesystem helper for per-account Codex CODEX_HOME directories.
+public enum CodexProfileStorage {
+    public static func ensureProfile(at codexHomeDirectory: String) throws {
+        let expanded = NSString(string: codexHomeDirectory).expandingTildeInPath
+        let directoryURL = URL(fileURLWithPath: expanded, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try ensureFileCredentialStore(in: directoryURL)
+    }
+
+    private static func ensureFileCredentialStore(in codexHomeURL: URL) throws {
+        let configURL = codexHomeURL.appendingPathComponent("config.toml")
+        let key = "cli_auth_credentials_store"
+
+        if FileManager.default.fileExists(atPath: configURL.path) {
+            let existing = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+            guard !existing.contains(key) else { return }
+
+            let suffix = existing.hasSuffix("\n") || existing.isEmpty ? "" : "\n"
+            let addition = "\(suffix)\(key) = \"file\"\n"
+            try (existing + addition).write(to: configURL, atomically: true, encoding: .utf8)
+            return
+        }
+
+        try "\(key) = \"file\"\n".write(to: configURL, atomically: true, encoding: .utf8)
     }
 }

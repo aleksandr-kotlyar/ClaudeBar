@@ -7,22 +7,45 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
     private let executable: String
     private let cliExecutor: CLIExecutor
     private let transport: RPCTransport?
+    private let environmentOverrides: [String: String]
     private var nextID = 1
 
     /// Package-internal: allows tests to inject a mock transport for the production (no-injection) code path.
     var transportFactory: ((String, [String]) throws -> RPCTransport)?
 
     /// Default initializer - uses real CLI executor and creates transport lazily.
-    public init(executable: String = "codex", cliExecutor: CLIExecutor? = nil) {
+    public init(
+        executable: String = "codex",
+        cliExecutor: CLIExecutor? = nil,
+        environmentOverrides: [String: String] = [:]
+    ) {
         self.executable = executable
-        self.cliExecutor = cliExecutor ?? DefaultCLIExecutor()
+        self.environmentOverrides = environmentOverrides
+        self.cliExecutor = cliExecutor ?? DefaultCLIExecutor(environmentOverrides: environmentOverrides)
         self.transport = nil
     }
 
+    public convenience init(
+        executable: String = "codex",
+        codexHomeDirectory: String,
+        cliExecutor: CLIExecutor? = nil
+    ) {
+        self.init(
+            executable: executable,
+            cliExecutor: cliExecutor,
+            environmentOverrides: ["CODEX_HOME": NSString(string: codexHomeDirectory).expandingTildeInPath]
+        )
+    }
+
     /// Internal initializer for testing with mock transport.
-    init(transport: RPCTransport, cliExecutor: CLIExecutor? = nil) {
+    init(
+        transport: RPCTransport,
+        cliExecutor: CLIExecutor? = nil,
+        environmentOverrides: [String: String] = [:]
+    ) {
         self.executable = "codex"
-        self.cliExecutor = cliExecutor ?? DefaultCLIExecutor()
+        self.environmentOverrides = environmentOverrides
+        self.cliExecutor = cliExecutor ?? DefaultCLIExecutor(environmentOverrides: environmentOverrides)
         self.transport = transport
     }
 
@@ -60,7 +83,11 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
             ownsTransport = false
         } else {
             let factory = transportFactory ?? { exec, args in
-                try ProcessRPCTransport(executable: exec, arguments: args)
+                try ProcessRPCTransport(
+                    executable: exec,
+                    arguments: args,
+                    environment: self.processEnvironment()
+                )
             }
             activeTransport = try factory(executable, ["-s", "read-only", "-a", "untrusted", "app-server"])
             ownsTransport = true
@@ -241,6 +268,14 @@ public final class DefaultCodexRPCClient: CodexRPCClient, @unchecked Sendable {
         } else {
             return "Resets in \(minutes)m"
         }
+    }
+
+    private func processEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        for (key, value) in environmentOverrides {
+            env[key] = value
+        }
+        return env
     }
 
     public func shutdown() {

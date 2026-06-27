@@ -8,7 +8,7 @@ import Domain
 ///
 /// Usage URL: `https://chatgpt.com/backend-api/wham/usage`
 /// Token Refresh URL: `https://auth.openai.com/oauth/token`
-public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
+public struct CodexAPIUsageProbe: CodexProfileAPIProbing, @unchecked Sendable {
     private let credentialLoader: CodexCredentialLoader
     private let networkClient: any NetworkClient
     private let timeout: TimeInterval
@@ -34,6 +34,34 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         credentialLoader.loadCredentials() != nil
     }
 
+    public func isAvailable(codexHomeDirectory: String) async -> Bool {
+        CodexCredentialLoader(codexHomeDirectory: codexHomeDirectory).loadCredentials() != nil
+    }
+
+    public func probe(
+        codexHomeDirectory: String,
+        overrideAccessToken: String?,
+        accountId: String?
+    ) async throws -> UsageSnapshot {
+        let expanded = NSString(string: codexHomeDirectory).expandingTildeInPath
+        try CodexProfileStorage.ensureProfile(at: expanded)
+
+        if let overrideAccessToken {
+            let credentialAccountId = CodexCredentialLoader(codexHomeDirectory: expanded).loadCredentials()?.accountId
+            return try await fetchAndParse(
+                accessToken: overrideAccessToken,
+                accountId: accountId ?? credentialAccountId
+            )
+        }
+
+        let scopedProbe = CodexAPIUsageProbe(
+            credentialLoader: CodexCredentialLoader(codexHomeDirectory: expanded),
+            networkClient: networkClient,
+            timeout: timeout
+        )
+        return try await scopedProbe.probe(overrideAccessToken: nil, accountId: accountId)
+    }
+
     public func probe() async throws -> UsageSnapshot {
         return try await probe(overrideAccessToken: nil, accountId: nil)
     }
@@ -57,7 +85,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         if credentialLoader.needsRefresh(lastRefresh: credentials.lastRefresh) {
             AppLog.probes.info("Codex API: Token needs refresh (last_refresh > 8 days)")
             do {
-                credentials = try await refreshToken(credentials)
+                credentials = try await refreshToken(credentials, codexHomePath: normalizedCodexHomePath)
             } catch {
                 AppLog.probes.warning("Codex API: Proactive refresh failed: \(error.localizedDescription), trying with existing token")
                 // Don't throw here - try the existing token first
@@ -76,7 +104,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
             // Token might have been invalidated, try refreshing once
             AppLog.probes.info("Codex API: Got 401, attempting token refresh...")
             do {
-                credentials = try await refreshToken(credentials)
+                credentials = try await refreshToken(credentials, codexHomePath: normalizedCodexHomePath)
                 return try await fetchAndParse(
                     accessToken: credentials.accessToken,
                     accountId: accountId ?? credentials.accountId
@@ -95,7 +123,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
 
     // MARK: - Token Refresh
 
-    private func refreshToken(_ credentials: CodexCredentialResult) async throws -> CodexCredentialResult {
+    private func refreshToken(_ credentials: CodexCredentialResult, codexHomePath: String?) async throws -> CodexCredentialResult {
         guard let refreshToken = credentials.refreshToken else {
             AppLog.probes.error("Codex API: No refresh token available")
             throw ProbeError.authenticationRequired
@@ -170,7 +198,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         updatedCredentials.lastRefresh = ISO8601DateFormatter().string(from: Date())
 
         // Save updated credentials
-        credentialLoader.saveCredentials(updatedCredentials)
+        credentialLoader.saveCredentials(updatedCredentials, codexHomePath: codexHomePath)
 
         AppLog.probes.info("Codex API: Token refreshed successfully")
         return updatedCredentials
