@@ -16,3 +16,9 @@ build/
 
 # Personal Claude Code settings (per-project, never commit)
 .claude/settings.local.json
+.cache/
+.local/
+.swiftpm/
+.tmp/
+DerivedData/
+ReleaseArtifacts/

@@ -26,7 +26,7 @@ public protocol CLIExecutor: Sendable {
     ///   - args: Command-line arguments
     ///   - input: Text to send to the command
     ///   - timeout: Maximum time to wait
-    ///   - workingDirectory: Directory to run in (nil = inherited)
+    ///   - workingDirectory: Directory to run in (nil)
     ///   - autoResponses: Automatic responses to prompts (prompt text → response to send)
     ///   - environment: Optional environment overrides for the subprocess
     func execute(
@@ -36,6 +36,28 @@ public protocol CLIExecutor: Sendable {
         timeout: TimeInterval,
         workingDirectory: URL?,
         autoResponses: [String: String],
-        environment: [String: String]? = nil
+        environment: [String: String]?
     ) throws -> CLIResult
 }
+
+public extension CLIExecutor {
+    func execute(
+        binary: String,
+        args: [String],
+        input: String?,
+        timeout: TimeInterval,
+        workingDirectory: URL?,
+        autoResponses: [String: String]
+    ) throws -> CLIResult {
+        return try execute(
+            binary: binary,
+            args: args,
+            input: input,
+            timeout: timeout,
+            workingDirectory: workingDirectory,
+            autoResponses: autoResponses,
+            environment: nil
+        )
+    }
+}
+
