@@ -391,6 +391,87 @@ struct CodexAPIUsageProbeTests {
             try await probe.probe()
         }
     }
+
+    @Test
+    func `probe sends override access token and account id in request headers`() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try createAuthFile(at: tempDir, accessToken: "fallback-token", accountId: "fallback-account")
+
+        let mockNetwork = MockNetworkClient()
+        let response = """
+        {
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 20.0
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let responseHTTP = HTTPURLResponse(
+            url: URL(string: "https://chatgpt.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        var authHeader: String?
+        var accountIdHeader: String?
+        given(mockNetwork).request(.any).willProduce { request in
+            authHeader = request.value(forHTTPHeaderField: "Authorization")
+            accountIdHeader = request.value(forHTTPHeaderField: "ChatGPT-Account-Id")
+            return (response, responseHTTP)
+        }
+
+        let loader = CodexCredentialLoader(homeDirectory: tempDir.path)
+        let probe = CodexAPIUsageProbe(credentialLoader: loader, networkClient: mockNetwork)
+
+        _ = try await probe.probe(overrideAccessToken: "custom-token", accountId: "custom-account")
+
+        #expect(authHeader == "Bearer custom-token")
+        #expect(accountIdHeader == "custom-account")
+    }
+
+    @Test
+    func `probe uses account id from credentials when override account id is missing`() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try createAuthFile(at: tempDir, accessToken: "fallback-token", accountId: "stored-account")
+
+        let mockNetwork = MockNetworkClient()
+        let response = """
+        {
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 20.0
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let responseHTTP = HTTPURLResponse(
+            url: URL(string: "https://chatgpt.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        var accountIdHeader: String?
+        given(mockNetwork).request(.any).willProduce { request in
+            accountIdHeader = request.value(forHTTPHeaderField: "ChatGPT-Account-Id")
+            return (response, responseHTTP)
+        }
+
+        let loader = CodexCredentialLoader(homeDirectory: tempDir.path)
+        let probe = CodexAPIUsageProbe(credentialLoader: loader, networkClient: mockNetwork)
+
+        _ = try await probe.probe(overrideAccessToken: "fallback-token", accountId: nil)
+
+        #expect(accountIdHeader == "stored-account")
+    }
 }
 
 // MARK: - Token Refresh Tests

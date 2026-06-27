@@ -14,9 +14,9 @@ struct CodexConfigCard: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $codexConfigExpanded) {
-            Divider()
-                .background(theme.glassBorder)
-                .padding(.vertical, 12)
+                Divider()
+                    .background(theme.glassBorder)
+                    .padding(.vertical, 12)
 
             codexConfigForm
         } label: {
@@ -49,6 +49,10 @@ struct CodexConfigCard: View {
         .onAppear {
             codexProbeMode = settings.codex.codexProbeMode()
         }
+    }
+
+    private var codexProvider: (any MultiAccountProvider)? {
+        monitor.provider(for: "codex") as? (any MultiAccountProvider)
     }
 
     private var codexConfigHeader: some View {
@@ -160,6 +164,17 @@ struct CodexConfigCard: View {
                         .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
                         .foregroundStyle(theme.textTertiary)
                 }
+            }
+
+            if let codexProvider {
+                Divider()
+                    .background(theme.glassBorder)
+                    .padding(.vertical, 12)
+
+                AccountManagementCard(
+                    provider: codexProvider,
+                    monitor: monitor
+                )
             }
         }
     }

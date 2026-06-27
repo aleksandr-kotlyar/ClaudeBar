@@ -71,6 +71,19 @@ struct MenuContentView: View {
                         providerPills
                             .padding(.horizontal, 16)
                             .padding(.bottom, 16)
+
+                        if let accountProvider = activeMultiAccountProvider,
+                           accountProvider.accounts.count > 1 {
+                            AccountPickerView(provider: accountProvider) { accountId in
+                                let switched = accountProvider.switchAccount(to: accountId)
+                                if switched {
+                                    Task {
+                                        await refresh(providerId: accountProvider.id)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
                     }
 
                     // Session Indicator (shown when Claude Code is active)
@@ -317,6 +330,10 @@ struct MenuContentView: View {
     /// Only show enabled providers in the pills
     private var enabledProviders: [any AIProvider] {
         monitor.enabledProviders
+    }
+
+    private var activeMultiAccountProvider: (any MultiAccountProvider)? {
+        selectedProvider as? (any MultiAccountProvider)
     }
 
     private var providerPills: some View {

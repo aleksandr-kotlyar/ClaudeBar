@@ -16,6 +16,40 @@ struct JSONSettingsRepositoryProviderTests {
         return (repo, tempDir)
     }
 
+    private func makeLegacyAwareRepository() throws -> (JSONSettingsRepository, JSONSettingsStore, URL, String) {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claudebar-codex-migration-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let store = JSONSettingsStore(fileURL: tempDir.appendingPathComponent("settings.json"))
+        let codexHome = tempDir.appendingPathComponent("codex-home", isDirectory: true).path
+        let repo = JSONSettingsRepository(
+            store: store,
+            codexCredentialLoader: CodexCredentialLoader(homeDirectory: codexHome)
+        )
+
+        return (repo, store, tempDir, codexHome)
+    }
+
+    private func writeCodexAuthFile(
+        at directory: String,
+        accessToken: String = "test-access-token",
+        accountId: String? = nil
+    ) throws {
+        let home = URL(fileURLWithPath: directory, isDirectory: true)
+        let codexDir = home.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexDir, withIntermediateDirectories: true)
+
+        var tokens: [String: String] = ["access_token": accessToken]
+        if let accountId {
+            tokens["account_id"] = accountId
+        }
+
+        let auth = ["tokens": tokens]
+        let data = try JSONSerialization.data(withJSONObject: auth, options: [.prettyPrinted])
+        try data.write(to: codexDir.appendingPathComponent("auth.json"))
+    }
+
     private func cleanup(_ dir: URL) {
         try? FileManager.default.removeItem(at: dir)
     }
@@ -164,6 +198,70 @@ struct JSONSettingsRepositoryProviderTests {
 
         repo.setCodexProbeMode(.api)
         #expect(repo.codexProbeMode() == .api)
+    }
+
+    @Test
+    func `accounts for codex migrate from legacy oauth credentials`() throws {
+        let (repo, store, dir, codexHome) = try makeLegacyAwareRepository()
+        defer { cleanup(dir) }
+
+        try writeCodexAuthFile(at: codexHome, accessToken: "legacy-token", accountId: "legacy-account")
+
+        let accounts = repo.accounts(forProvider: "codex")
+
+        #expect(accounts.count == 1)
+        #expect(accounts[0].accountId == ProviderAccount.defaultAccountId)
+        #expect(accounts[0].label == "Codex")
+        #expect(accounts[0].probeConfig["accessToken"] == "legacy-token")
+        #expect(accounts[0].probeConfig["accountId"] == "legacy-account")
+        #expect(store.read(key: "providers.codex.activeAccountId") == ProviderAccount.defaultAccountId)
+    }
+
+    @Test
+    func `accounts for codex migrate from legacy single settings`() throws {
+        let (repo, store, dir, _) = try makeLegacyAwareRepository()
+        defer { cleanup(dir) }
+
+        store.write(value: "legacy-token", key: "providers.codex.accessToken")
+        store.write(value: "legacy-work", key: "providers.codex.accountId")
+        store.write(value: "Legacy work", key: "providers.codex.label")
+        store.write(value: "legacy@example.com", key: "providers.codex.email")
+        store.write(value: "ACME", key: "providers.codex.organization")
+
+        let accounts = repo.accounts(forProvider: "codex")
+
+        #expect(accounts.count == 1)
+        #expect(accounts[0].accountId == "legacy-work")
+        #expect(accounts[0].label == "Legacy work")
+        #expect(accounts[0].email == "legacy@example.com")
+        #expect(accounts[0].organization == "ACME")
+        #expect(accounts[0].probeConfig["accessToken"] == "legacy-token")
+        #expect(accounts[0].probeConfig["accountId"] == "legacy-work")
+    }
+
+    @Test
+    func `accounts for codex does not override existing accounts`() throws {
+        let (repo, store, dir, _) = try makeLegacyAwareRepository()
+        defer { cleanup(dir) }
+
+        let existing = [ProviderAccountConfig(
+            accountId: "custom",
+            label: "Custom",
+            probeConfig: ["accessToken": "existing-token"]
+        )]
+        repo.setAccounts(existing, forProvider: "codex")
+        repo.setActiveAccountId("custom", forProvider: "codex")
+
+        store.write(value: "legacy-token", key: "providers.codex.accessToken")
+        store.write(value: "legacy-work", key: "providers.codex.accountId")
+
+        let accounts = repo.accounts(forProvider: "codex")
+
+        #expect(accounts.count == 1)
+        #expect(accounts[0].accountId == "custom")
+        #expect(accounts[0].label == "Custom")
+        #expect(accounts[0].probeConfig["accessToken"] == "existing-token")
+        #expect(repo.activeAccountId(forProvider: "codex") == "custom")
     }
 
     // MARK: - Kimi Settings

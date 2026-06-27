@@ -1,82 +1,104 @@
 import SwiftUI
 import Domain
 
-/// Settings card for managing accounts on a multi-account provider.
+/// Settings section for multi-account management.
 ///
-/// Shows the list of configured accounts with options to add, remove,
-/// and set the active account. Only rendered for providers that conform
-/// to `MultiAccountProvider`.
+/// The control lives inside provider config cards and keeps one active account
+/// snapshot in the parent provider for compatibility with the existing UI model.
 struct AccountManagementCard: View {
     let provider: any MultiAccountProvider
     let monitor: QuotaMonitor
 
     @Environment(\.appTheme) private var theme
-    @State private var isExpanded = false
-    @State private var showAddSheet = false
+    @State private var isShowingAddSheet = false
+    @State private var pendingDeleteAccountId: String?
+    @State private var shouldConfirmDelete = false
+    @State private var accountLabelInput = ""
+    @State private var accountTokenInput = ""
+    @State private var accountIdInput = ""
+
+    @State private var showDeleteHint = false
+    @State private var addAccountError: String?
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            Divider()
-                .background(theme.glassBorder)
-                .padding(.vertical, 8)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ACCOUNTS")
+                .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                .foregroundStyle(theme.textSecondary)
+                .tracking(0.5)
 
-            VStack(spacing: 8) {
+            if provider.accounts.isEmpty {
+                Text("No accounts configured.")
+                    .font(.system(size: 10, weight: .medium, design: theme.fontDesign))
+                    .foregroundStyle(theme.textTertiary)
+            } else {
                 ForEach(provider.accounts, id: \.id) { account in
                     accountRow(account)
                 }
-
-                addAccountButton
-            }
-        } label: {
-            header
-                .contentShape(.rect)
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
-                }
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: theme.cardCornerRadius)
-                .fill(theme.cardGradient)
-                .overlay(
-                    RoundedRectangle(cornerRadius: theme.cardCornerRadius)
-                        .stroke(theme.glassBorder, lineWidth: 1)
-                )
-        )
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(theme.accentGradient)
-                    .frame(width: 32, height: 32)
-
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Accounts")
-                    .font(.system(size: 14, weight: .bold, design: theme.fontDesign))
-                    .foregroundStyle(theme.textPrimary)
+            Divider()
+                .background(theme.glassBorder)
+                .padding(.vertical, 4)
 
-                Text("\(provider.accounts.count) account\(provider.accounts.count == 1 ? "" : "s") configured")
-                    .font(.system(size: 10, weight: .medium, design: theme.fontDesign))
+            addAccountButton
+
+            if provider.accounts.count == 1 {
+                Text("At least one account is required.")
+                    .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
                     .foregroundStyle(theme.textTertiary)
             }
 
-            Spacer()
+            if showDeleteHint, let accountId = pendingDeleteAccountId {
+                Text("Deleting \(displayName(for: accountId)) will switch to another account automatically.")
+                    .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                    .foregroundStyle(theme.textTertiary)
+                    .transition(.opacity)
+            }
 
-            // Aggregate status badge
-            let statusColor = theme.statusColor(for: provider.aggregateStatus)
-            Text(provider.aggregateStatus.badgeText)
-                .badge(statusColor)
+            if let addAccountError {
+                Text(addAccountError)
+                    .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                    .foregroundStyle(theme.statusWarning)
+            }
+
+            if isShowingAddSheet {
+                addAccountForm
+            }
+        }
+        .padding(.vertical, 2)
+        .alert(
+            "Delete account",
+            isPresented: .init(
+                get: { pendingDeleteAccountId != nil && shouldConfirmDelete },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingDeleteAccountId = nil
+                        shouldConfirmDelete = false
+                        showDeleteHint = false
+                    }
+                }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                if let accountId = pendingDeleteAccountId {
+                    deleteAccount(accountId)
+                }
+                pendingDeleteAccountId = nil
+                shouldConfirmDelete = false
+                showDeleteHint = false
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteAccountId = nil
+                shouldConfirmDelete = false
+                showDeleteHint = false
+            }
+        } message: {
+            if let accountId = pendingDeleteAccountId {
+                Text("Delete \"\(displayName(for: accountId))\"? This will switch to another account automatically.")
+            } else {
+                Text("Delete this account?")
+            }
         }
     }
 
@@ -120,7 +142,6 @@ struct AccountManagementCard: View {
 
             Spacer()
 
-            // Status from snapshot
             if let snapshot = provider.accountSnapshots[account.accountId] {
                 let status = snapshot.overallStatus
                 Circle()
@@ -128,19 +149,26 @@ struct AccountManagementCard: View {
                     .frame(width: 8, height: 8)
             }
 
-            // Active indicator
             if account.accountId == provider.activeAccount.accountId {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(theme.statusHealthy)
+                Text("Active")
+                    .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                    .foregroundStyle(theme.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(theme.accentPrimary.opacity(0.15))
+                    )
             } else {
-                // Switch button
                 Button {
-                    provider.switchAccount(to: account.accountId)
+                    let switched = provider.switchAccount(to: account.accountId)
+                    guard switched else { return }
+                    Task {
+                        await monitor.refresh(providerId: provider.id)
+                    }
                 } label: {
-                    Text("Switch")
-                        .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
-                        .foregroundStyle(theme.accentPrimary)
+                    Text("Use")
+                        .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(
@@ -150,6 +178,18 @@ struct AccountManagementCard: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Button {
+                attemptDeleteAccount(account)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(
+                        provider.accounts.count > 1 ? theme.textTertiary : theme.textSecondary
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(provider.accounts.count <= 1)
         }
         .padding(.vertical, 4)
     }
@@ -157,24 +197,214 @@ struct AccountManagementCard: View {
     // MARK: - Add Account
 
     private var addAccountButton: some View {
-        Button {
-            showAddSheet = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
+        HStack(spacing: 6) {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
 
-                Text("Add Account")
-                    .font(.system(size: 11, weight: .medium, design: theme.fontDesign))
-            }
-            .foregroundStyle(theme.accentPrimary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(theme.accentPrimary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4]))
-            )
+            Text("Add account")
+                .font(.system(size: 11, weight: .medium, design: theme.fontDesign))
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(theme.accentPrimary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(theme.accentPrimary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4]))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isShowingAddSheet = true
+            accountLabelInput = ""
+            accountTokenInput = ""
+            accountIdInput = ""
+            addAccountError = nil
+        }
+    }
+
+    private var addAccountForm: some View {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add Codex account")
+                    .font(.system(size: 14, weight: .semibold, design: theme.fontDesign))
+                    .foregroundStyle(theme.textPrimary)
+
+                Text("Name")
+                    .font(.system(size: 10, weight: .semibold, design: theme.fontDesign))
+                    .foregroundStyle(theme.textSecondary)
+
+                TextField("", text: $accountLabelInput, prompt: Text("Work account").foregroundStyle(theme.textTertiary))
+                    .textFieldStyle(.roundedBorder)
+
+                Text("API token")
+                    .font(.system(size: 10, weight: .semibold, design: theme.fontDesign))
+                    .foregroundStyle(theme.textSecondary)
+
+                SecureField("", text: $accountTokenInput, prompt: Text("access token").foregroundStyle(theme.textTertiary))
+                    .textFieldStyle(.roundedBorder)
+
+                Text("Account ID")
+                    .font(.system(size: 10, weight: .semibold, design: theme.fontDesign))
+                    .foregroundStyle(theme.textSecondary)
+
+                TextField("", text: $accountIdInput, prompt: Text("Optional").foregroundStyle(theme.textTertiary))
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: 8) {
+                Button("Cancel") {
+                    closeAddAccountSheet()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Save") {
+                    saveAccount()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(trimmedToken.isEmpty)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(theme.cardGradient)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(theme.glassBorder, lineWidth: 1)
+                )
+        )
+        .transition(.opacity)
+    }
+
+    private func closeAddAccountSheet() {
+        isShowingAddSheet = false
+        addAccountError = nil
+        accountLabelInput = ""
+        accountTokenInput = ""
+        accountIdInput = ""
+    }
+
+    private func attemptDeleteAccount(_ account: ProviderAccount) {
+        guard provider.accounts.count > 1 else { return }
+
+        if account.accountId == provider.activeAccount.accountId {
+            pendingDeleteAccountId = account.accountId
+            shouldConfirmDelete = true
+            showDeleteHint = true
+        } else {
+            deleteAccount(account.accountId)
+        }
+    }
+
+    private func deleteAccount(_ accountId: String) {
+        guard provider.removeAccount(accountId) else { return }
+
+        Task {
+            await monitor.refresh(providerId: provider.id)
+        }
+    }
+
+    private func saveAccount() {
+        addAccountError = nil
+        let label = uniqueLabel()
+        let accountId = normalizedAccountId(base: label)
+
+        var probeConfig: [String: String] = [ProbeConfigKey.accessToken: trimmedToken]
+
+        if !trimmedOptionalAccountId.isEmpty {
+            probeConfig[ProbeConfigKey.accountId] = trimmedOptionalAccountId
+        }
+
+        let config = ProviderAccountConfig(
+            accountId: accountId,
+            label: label,
+            probeConfig: probeConfig
+        )
+
+        let added = provider.addAccount(config)
+        guard added else {
+            addAccountError = "Cannot add account yet. Check whether an account with the same ID already exists."
+            return
+        }
+
+        _ = provider.switchAccount(to: accountId)
+        closeAddAccountSheet()
+
+        Task {
+            await monitor.refresh(providerId: provider.id)
+        }
+    }
+
+    private func displayName(for accountId: String) -> String {
+        provider.accounts
+            .first(where: { $0.accountId == accountId })?
+            .displayName ?? accountId
+    }
+
+    private var trimmedToken: String {
+        accountTokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedOptionalAccountId: String {
+        accountIdInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func uniqueLabel() -> String {
+        let base = accountLabelInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty {
+            return nextAvailableLabel(prefix: "Account", startSuffix: 2)
+        }
+
+        guard isLabelUnique(base) else {
+            return nextAvailableLabel(prefix: base, startSuffix: 2)
+        }
+
+        return base
+    }
+
+    private func nextAvailableLabel(prefix: String, startSuffix: Int) -> String {
+        var suffix = startSuffix
+        while true {
+            let candidate = "\(prefix) \(suffix)"
+            if !isLabelUsed(candidate) {
+                return candidate
+            }
+            suffix += 1
+        }
+    }
+
+    private func isLabelUsed(_ label: String) -> Bool {
+        provider.accounts.contains {
+            $0.label.caseInsensitiveCompare(label) == .orderedSame
+        }
+    }
+
+    private func isLabelUnique(_ label: String) -> Bool {
+        !isLabelUsed(label)
+    }
+
+    private func normalizedAccountId(base: String) -> String {
+        let compacted = base
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { char in
+                char.isLetter || char.isNumber || char == "-" || char == "_"
+            }
+
+        let baseId = compacted.isEmpty ? UUID().uuidString : compacted
+        var uniqueId = baseId
+        var suffix = 2
+
+        while provider.accounts.contains(where: { $0.accountId == uniqueId }) {
+            uniqueId = "\(baseId)-\(suffix)"
+            suffix += 1
+        }
+
+        return uniqueId
+    }
+
+    private enum ProbeConfigKey {
+        static let accessToken = "accessToken"
+        static let accountId = "accountId"
     }
 }

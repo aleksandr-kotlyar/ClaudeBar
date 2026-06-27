@@ -20,7 +20,10 @@ public protocol MultiAccountSettingsRepository: ProviderSettingsRepository {
     /// Returns an empty array for single-account providers (backward compatible).
     func accounts(forProvider id: String) -> [ProviderAccountConfig]
 
-    /// Adds an account configuration for a provider.
+    /// Replaces all account configurations for a provider.
+    func setAccounts(_ configs: [ProviderAccountConfig], forProvider id: String)
+
+    /// Adds a single account configuration for a provider.
     func addAccount(_ config: ProviderAccountConfig, forProvider id: String)
 
     /// Removes an account configuration by account ID.

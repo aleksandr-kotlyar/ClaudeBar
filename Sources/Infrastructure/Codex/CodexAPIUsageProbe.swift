@@ -35,6 +35,19 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
     }
 
     public func probe() async throws -> UsageSnapshot {
+        return try await probe(overrideAccessToken: nil, accountId: nil)
+    }
+
+    public func probe(overrideAccessToken: String?, accountId: String?) async throws -> UsageSnapshot {
+        if let overrideAccessToken {
+            let overrideAccountId = accountId
+            let credentialAccountId = credentialLoader.loadCredentials()?.accountId
+            return try await fetchAndParse(
+                accessToken: overrideAccessToken,
+                accountId: overrideAccountId ?? credentialAccountId
+            )
+        }
+
         guard var credentials = credentialLoader.loadCredentials() else {
             AppLog.probes.error("Codex API: No credentials found")
             throw ProbeError.authenticationRequired
@@ -54,28 +67,29 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
             }
         }
 
-        // Fetch usage data
-        let (data, httpResponse): (Data, HTTPURLResponse)
         do {
-            (data, httpResponse) = try await fetchUsage(
+            return try await fetchAndParse(
                 accessToken: credentials.accessToken,
-                accountId: credentials.accountId
+                accountId: accountId ?? credentials.accountId
             )
         } catch let error as ProbeError where error == .authenticationRequired {
             // Token might have been invalidated, try refreshing once
             AppLog.probes.info("Codex API: Got 401, attempting token refresh...")
             do {
                 credentials = try await refreshToken(credentials)
-                (data, httpResponse) = try await fetchUsage(
+                return try await fetchAndParse(
                     accessToken: credentials.accessToken,
-                    accountId: credentials.accountId
+                    accountId: accountId ?? credentials.accountId
                 )
             } catch {
                 AppLog.probes.error("Codex API: Retry after refresh failed: \(error.localizedDescription)")
                 throw error
             }
         }
+    }
 
+    private func fetchAndParse(accessToken: String, accountId: String?) async throws -> UsageSnapshot {
+        let (data, httpResponse) = try await fetchUsage(accessToken: accessToken, accountId: accountId)
         return try parseUsageResponse(data: data, httpResponse: httpResponse)
     }
 

@@ -46,6 +46,17 @@ public protocol MultiAccountProvider: AIProvider {
 
     /// The account with the most remaining quota (best candidate for use).
     var bestAvailableAccount: ProviderAccount? { get }
+
+    /// Adds a new account configuration and persists it.
+    @discardableResult
+    func addAccount(_ config: ProviderAccountConfig) -> Bool
+
+    /// Removes an account configuration and its snapshot.
+    @discardableResult
+    func removeAccount(_ accountId: String) -> Bool
+
+    /// Updates an existing account configuration by account ID.
+    func updateAccount(_ config: ProviderAccountConfig)
 }
 
 // MARK: - Default Implementations
@@ -71,6 +82,18 @@ public extension MultiAccountProvider {
 
         return sorted.first?.0
     }
+
+    @discardableResult
+    func addAccount(_ config: ProviderAccountConfig) -> Bool {
+        return false
+    }
+
+    @discardableResult
+    func removeAccount(_ accountId: String) -> Bool {
+        return false
+    }
+
+    func updateAccount(_ config: ProviderAccountConfig) {}
 }
 
 // MARK: - AIProviderRepository Extension

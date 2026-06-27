@@ -13,6 +13,7 @@ public final class JSONSettingsRepository:
     CopilotSettingsRepository,
     BedrockSettingsRepository,
     ClaudeSettingsRepository,
+    MultiAccountSettingsRepository,
     CodexSettingsRepository,
     KimiSettingsRepository,
     MiniMaxSettingsRepository,
@@ -25,10 +26,131 @@ public final class JSONSettingsRepository:
 
     private let store: JSONSettingsStore
     private let credentials: UserDefaults
+    private let codexCredentialLoader: CodexCredentialLoader
+    private var migratedProviderAccounts = Set<String>()
 
-    public init(store: JSONSettingsStore, credentials: UserDefaults = .standard) {
+    private enum ProviderSettingsKey {
+        static let accounts = "accounts"
+        static let activeAccountId = "activeAccountId"
+    }
+
+    private enum CodexProbeConfigKey {
+        static let accessToken = "accessToken"
+        static let accountId = "accountId"
+    }
+
+    public init(
+        store: JSONSettingsStore,
+        credentials: UserDefaults = .standard,
+        codexCredentialLoader: CodexCredentialLoader = .init()
+    ) {
         self.store = store
         self.credentials = credentials
+        self.codexCredentialLoader = codexCredentialLoader
+    }
+
+    // MARK: - Codable Helpers
+
+    private func readCodableValue<T: Decodable>(forKey key: String) -> T? {
+        store.readCodable(key: key)
+    }
+
+    private func writeCodableValue<T: Encodable>(_ value: T?, forKey key: String) {
+        store.writeCodable(value, key: key)
+    }
+
+    private func hasText(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func normalizeAccountConfig(_ config: ProviderAccountConfig) -> ProviderAccountConfig {
+        let probeConfig = config.probeConfig.mapValues { value in
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let filteredProbeConfig = probeConfig.filter { key, value in
+            switch key {
+            case CodexProbeConfigKey.accessToken, CodexProbeConfigKey.accountId:
+                return hasText(value)
+            default:
+                return !value.isEmpty
+            }
+        }
+
+        let normalizedLabel = config.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ProviderAccountConfig(
+            accountId: config.accountId,
+            label: normalizedLabel.isEmpty ? "Codex" : normalizedLabel,
+            email: config.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+            organization: config.organization?.trimmingCharacters(in: .whitespacesAndNewlines),
+            probeConfig: filteredProbeConfig
+        )
+    }
+
+    private func migrateCodexAccountsIfNeeded() {
+        guard !migratedProviderAccounts.contains("codex") else { return }
+        migratedProviderAccounts.insert("codex")
+
+        if store.read(key: "providers.codex.accounts") != nil {
+            return
+        }
+
+        if let legacyConfig = legacySingleCodexAccountConfig() {
+            setAccounts([legacyConfig], forProvider: "codex")
+            setActiveAccountId(legacyConfig.accountId, forProvider: "codex")
+            return
+        }
+
+        if let credentials = codexCredentialLoader.loadCredentials(), hasText(credentials.accessToken) {
+            var probeConfig: [String: String] = [
+                CodexProbeConfigKey.accessToken: credentials.accessToken
+            ]
+
+            if let accountId = credentials.accountId,
+               hasText(accountId) {
+                probeConfig[CodexProbeConfigKey.accountId] = accountId
+            }
+
+            let config = ProviderAccountConfig(
+                accountId: ProviderAccount.defaultAccountId,
+                label: "Codex",
+                probeConfig: probeConfig
+            )
+            setAccounts([config], forProvider: "codex")
+            setActiveAccountId(ProviderAccount.defaultAccountId, forProvider: "codex")
+        }
+    }
+
+    private func legacySingleCodexAccountConfig() -> ProviderAccountConfig? {
+        let rawAccessToken: String? = store.read(key: "providers.codex.accessToken")
+        let rawAccountId: String? = store.read(key: "providers.codex.accountId")
+        let rawLabel: String? = store.read(key: "providers.codex.label")
+        let rawEmail: String? = store.read(key: "providers.codex.email")
+        let rawOrganization: String? = store.read(key: "providers.codex.organization")
+
+        let accessToken = rawAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let accountId = rawAccountId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedLabel = rawLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Codex"
+
+        guard !accessToken.isEmpty || !accountId.isEmpty || rawLabel != nil || rawEmail != nil || rawOrganization != nil else {
+            return nil
+        }
+
+        var probeConfig: [String: String] = [:]
+        if !accessToken.isEmpty {
+            probeConfig[CodexProbeConfigKey.accessToken] = accessToken
+        }
+        if !accountId.isEmpty {
+            probeConfig[CodexProbeConfigKey.accountId] = accountId
+        }
+
+        return ProviderAccountConfig(
+            accountId: accountId.isEmpty ? ProviderAccount.defaultAccountId : accountId,
+            label: normalizedLabel.isEmpty ? "Codex" : normalizedLabel,
+            email: rawEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+            organization: rawOrganization?.trimmingCharacters(in: .whitespacesAndNewlines),
+            probeConfig: probeConfig
+        )
     }
 
     // MARK: - AppSettingsRepository
@@ -190,6 +312,69 @@ public final class JSONSettingsRepository:
     public func setCustomCardURL(_ url: String?, forProvider id: String) {
         let value: Any? = (url?.isEmpty == false) ? url : nil
         store.write(value: value, key: "providers.\(id).customCardURL")
+    }
+
+    public func accounts(forProvider id: String) -> [ProviderAccountConfig] {
+        if id == "codex" {
+            migrateCodexAccountsIfNeeded()
+        }
+
+        return (readCodableValue(forKey: "providers.\(id).\(ProviderSettingsKey.accounts)") as [ProviderAccountConfig]?)
+            .map { configs in
+                configs
+                    .filter { !$0.accountId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .map(normalizeAccountConfig)
+            } ?? []
+    }
+
+    public func setAccounts(_ configs: [ProviderAccountConfig], forProvider id: String) {
+        let sanitized = configs
+            .filter { !$0.accountId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map(normalizeAccountConfig)
+
+        writeCodableValue(sanitized, forKey: "providers.\(id).\(ProviderSettingsKey.accounts)")
+    }
+
+    public func addAccount(_ config: ProviderAccountConfig, forProvider id: String) {
+        var configs = accounts(forProvider: id)
+
+        guard !configs.contains(where: { $0.accountId == config.accountId }) else {
+            return
+        }
+
+        configs.append(config)
+        setAccounts(configs, forProvider: id)
+    }
+
+    public func removeAccount(accountId: String, forProvider id: String) {
+        let remaining = accounts(forProvider: id).filter { $0.accountId != accountId }
+        setAccounts(remaining, forProvider: id)
+
+        let active = activeAccountId(forProvider: id)
+        if active == accountId,
+           let first = remaining.first {
+            setActiveAccountId(first.accountId, forProvider: id)
+        }
+    }
+
+    public func updateAccount(_ config: ProviderAccountConfig, forProvider id: String) {
+        var configs = accounts(forProvider: id)
+
+        if let index = configs.firstIndex(where: { $0.accountId == config.accountId }) {
+            configs[index] = config
+        } else {
+            configs.append(config)
+        }
+
+        setAccounts(configs, forProvider: id)
+    }
+
+    public func activeAccountId(forProvider id: String) -> String? {
+        store.read(key: "providers.\(id).\(ProviderSettingsKey.activeAccountId)")
+    }
+
+    public func setActiveAccountId(_ accountId: String?, forProvider id: String) {
+        store.write(value: accountId, key: "providers.\(id).\(ProviderSettingsKey.activeAccountId)")
     }
 
     // MARK: - ClaudeSettingsRepository

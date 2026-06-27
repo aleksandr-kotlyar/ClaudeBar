@@ -28,6 +28,19 @@ public final class JSONSettingsStore: @unchecked Sendable {
         return resolveRead(dict: dict, keyPath: key.split(separator: ".").map(String.init)) as? T
     }
 
+    /// Reads and decodes a Codable value from the given key path.
+    /// Returns nil if key doesn't exist, file is missing, or decode fails.
+    public func readCodable<T: Decodable>(key: String) -> T? {
+        guard let value = read(key: key) as Any? else { return nil }
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: value,
+            options: []
+        ) else { return nil }
+
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
     /// Writes a value for the given key path (dot-notation supported).
     /// Pass nil to remove the key. Creates the file and parent directories if needed.
     public func write(value: Any?, key: String) {
@@ -38,6 +51,22 @@ public final class JSONSettingsStore: @unchecked Sendable {
         let parts = key.split(separator: ".").map(String.init)
         resolveWrite(dict: &dict, keyPath: parts, value: value)
         writeFile(dict)
+    }
+
+    /// Encodes and writes a Codable value for the given key path.
+    /// Pass nil to remove the key.
+    public func writeCodable<T: Encodable>(_ value: T?, key: String) {
+        guard let value else {
+            write(value: nil, key: key)
+            return
+        }
+
+        guard let data = try? JSONEncoder().encode(value),
+              let jsonObject = try? JSONSerialization.jsonObject(with: data) else {
+            return
+        }
+
+        write(value: jsonObject, key: key)
     }
 
     /// Returns the full settings dictionary (for migration/debugging).
