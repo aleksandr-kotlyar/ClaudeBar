@@ -9,7 +9,9 @@ import Domain
 /// Usage URL: `https://chatgpt.com/backend-api/wham/usage`
 /// Token Refresh URL: `https://auth.openai.com/oauth/token`
 public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
-    private let credentialLoader: CodexCredentialLoader
+    private let credentialLoader: CodexCredentialLoader?
+    private let settingsRepository: (any CodexSettingsRepository)?
+    private let explicitCodexHomePath: String?
     private let networkClient: any NetworkClient
     private let timeout: TimeInterval
 
@@ -26,16 +28,32 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         timeout: TimeInterval = 15
     ) {
         self.credentialLoader = credentialLoader
+        self.settingsRepository = nil
+        self.explicitCodexHomePath = nil
+        self.networkClient = networkClient
+        self.timeout = timeout
+    }
+
+    public init(
+        settingsRepository: any CodexSettingsRepository,
+        explicitCodexHomePath: String? = nil,
+        networkClient: any NetworkClient = URLSession.shared,
+        timeout: TimeInterval = 15
+    ) {
+        self.credentialLoader = nil
+        self.settingsRepository = settingsRepository
+        self.explicitCodexHomePath = explicitCodexHomePath
         self.networkClient = networkClient
         self.timeout = timeout
     }
 
     public func isAvailable() async -> Bool {
-        credentialLoader.loadCredentials() != nil
+        currentCredentialLoader().loadCredentials() != nil
     }
 
     public func probe() async throws -> UsageSnapshot {
-        guard var credentials = credentialLoader.loadCredentials() else {
+        var credentialsLoader = currentCredentialLoader()
+        guard var credentials = credentialsLoader.loadCredentials() else {
             AppLog.probes.error("Codex API: No credentials found")
             throw ProbeError.authenticationRequired
         }
@@ -44,7 +62,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         if credentialLoader.needsRefresh(lastRefresh: credentials.lastRefresh) {
             AppLog.probes.info("Codex API: Token needs refresh (last_refresh > 8 days)")
             do {
-                credentials = try await refreshToken(credentials)
+                credentials = try await refreshToken(credentials, credentialLoader: credentialsLoader)
             } catch {
                 AppLog.probes.warning("Codex API: Proactive refresh failed: \(error.localizedDescription), trying with existing token")
                 // Don't throw here - try the existing token first
@@ -65,7 +83,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
             // Token might have been invalidated, try refreshing once
             AppLog.probes.info("Codex API: Got 401, attempting token refresh...")
             do {
-                credentials = try await refreshToken(credentials)
+                credentials = try await refreshToken(credentials, credentialLoader: credentialsLoader)
                 (data, httpResponse) = try await fetchUsage(
                     accessToken: credentials.accessToken,
                     accountId: credentials.accountId
@@ -81,7 +99,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
 
     // MARK: - Token Refresh
 
-    private func refreshToken(_ credentials: CodexCredentialResult) async throws -> CodexCredentialResult {
+    private func refreshToken(_ credentials: CodexCredentialResult, credentialLoader: CodexCredentialLoader) async throws -> CodexCredentialResult {
         guard let refreshToken = credentials.refreshToken else {
             AppLog.probes.error("Codex API: No refresh token available")
             throw ProbeError.authenticationRequired
@@ -203,6 +221,19 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         }
 
         return (data, httpResponse)
+    }
+
+    private func currentCredentialLoader() -> CodexCredentialLoader {
+        if let settingsRepository {
+            let configuredPath = settingsRepository.codexHomePath().trimmingCharacters(in: .whitespacesAndNewlines)
+            let explicitPath = explicitCodexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let codexHomePath = explicitPath?.isEmpty == false ? explicitPath : (configuredPath.isEmpty ? nil : configuredPath)
+            return CodexCredentialLoader(
+                codexHomePath: codexHomePath
+            )
+        }
+
+        return credentialLoader ?? CodexCredentialLoader()
     }
 
     // MARK: - Response Parsing
