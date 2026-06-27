@@ -8,11 +8,18 @@ struct CodexConfigCard: View {
 
     @State private var settings = AppSettings.shared
     @State private var hasCredentials: Bool = false
+    @State private var codexHomePathInput: String = ""
+    @State private var showDeleteCredentialsAlert: Bool = false
     @Environment(\.appTheme) private var theme
-    private let credentialLoader = CodexCredentialLoader()
 
     @State private var codexConfigExpanded: Bool = false
     @State private var codexProbeMode: CodexProbeMode = .rpc
+
+    private var credentialLoader: CodexCredentialLoader {
+        CodexCredentialLoader(
+            codexHomePath: settings.codex.codexHomePath()
+        )
+    }
 
     var body: some View {
         DisclosureGroup(isExpanded: $codexConfigExpanded) {
@@ -50,7 +57,19 @@ struct CodexConfigCard: View {
         )
         .onAppear {
             codexProbeMode = settings.codex.codexProbeMode()
+            codexHomePathInput = settings.codex.codexHomePath()
             refreshCredentialStatus()
+        }
+        .alert(
+            "Delete Codex CLI credentials",
+            isPresented: $showDeleteCredentialsAlert
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Codex CLI credentials", role: .destructive) {
+                deleteCliCredentials()
+            }
+        } message: {
+            Text("This removes `auth.json` from the configured Codex home and requires re-authenticating in the Codex CLI. It does not change the current ClaudeBar probe mode.")
         }
     }
 
@@ -138,7 +157,7 @@ struct CodexConfigCard: View {
                             .font(.system(size: 10, weight: .semibold, design: theme.fontDesign))
                             .foregroundStyle(codexProbeMode == .api ? theme.textPrimary : theme.textSecondary)
 
-                        Text("Calls ChatGPT API directly. Faster, uses OAuth credentials.")
+                        Text("Calls ChatGPT API directly. Uses Codex OAuth credentials for this binding.")
                             .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
                             .foregroundStyle(theme.textTertiary)
                     }
@@ -146,7 +165,40 @@ struct CodexConfigCard: View {
             }
 
             if codexProbeMode == .api {
-                HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CODEX HOME")
+                        .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                        .foregroundStyle(theme.textSecondary)
+                        .tracking(0.5)
+
+                    TextField(
+                        "",
+                        text: $codexHomePathInput,
+                        prompt: Text("~/.codex").foregroundStyle(theme.textTertiary)
+                    )
+                    .font(.system(size: 12, weight: .medium, design: theme.fontDesign))
+                    .foregroundStyle(theme.textPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(theme.glassBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(theme.glassBorder, lineWidth: 1)
+                            )
+                    )
+                    .onChange(of: codexHomePathInput) { _, newValue in
+                        settings.codex.setCodexHomePath(newValue)
+                        refreshCredentialStatus()
+                    }
+
+                    Text("Leave empty to use default `~/.codex` or set $CODEX_HOME.")
+                        .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                        .foregroundStyle(theme.textTertiary)
+                }
+
+                HStack(alignment: .top, spacing: 8) {
                     Image(systemName: hasCredentials ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(hasCredentials ? theme.statusHealthy : theme.statusWarning)
@@ -161,24 +213,57 @@ struct CodexConfigCard: View {
                         .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
                         .foregroundStyle(theme.textTertiary)
                 } else {
-                    Button {
-                        disconnectCodex()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "link.slash")
-                                .font(.system(size: 10))
-                            Text("Disconnect")
-                                .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                    HStack(spacing: 8) {
+                        Button {
+                            disconnectCodex()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "link.slash")
+                                    .font(.system(size: 10))
+                                Text("Disconnect Codex API")
+                                    .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                            }
+                            .foregroundStyle(theme.accentPrimary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(theme.glassBackground)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(theme.glassBorder, lineWidth: 1)
+                                    )
+                            )
                         }
-                        .foregroundStyle(theme.statusWarning)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(theme.statusWarning.opacity(0.5), lineWidth: 1)
-                        )
+                        .buttonStyle(.plain)
+
+                        Button {
+                            showDeleteCredentialsAlert = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 10))
+                                Text("Delete Codex CLI credentials")
+                                    .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                            }
+                            .foregroundStyle(theme.statusWarning)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(theme.glassBackground)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(theme.statusWarning.opacity(0.5), lineWidth: 1)
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+
+                    Text("Disconnect Codex API unlinks ClaudeBar from Codex API mode only. To remove terminal auth, use Delete Codex CLI credentials.")
+                        .font(.system(size: 8, weight: .medium, design: theme.fontDesign))
+                        .foregroundStyle(theme.textTertiary)
                 }
             }
         }
@@ -189,10 +274,19 @@ struct CodexConfigCard: View {
     }
 
     private func disconnectCodex() {
-        credentialLoader.disconnect()
-        refreshCredentialStatus()
+        settings.codex.setCodexProbeMode(.rpc)
+        codexProbeMode = .rpc
         Task {
             await monitor.refresh(providerId: "codex")
         }
+        refreshCredentialStatus()
+    }
+
+    private func deleteCliCredentials() {
+        _ = credentialLoader.disconnect()
+        Task {
+            await monitor.refresh(providerId: "codex")
+        }
+        refreshCredentialStatus()
     }
 }

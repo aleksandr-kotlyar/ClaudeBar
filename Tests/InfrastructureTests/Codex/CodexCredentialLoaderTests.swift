@@ -21,9 +21,15 @@ struct CodexCredentialLoaderTests {
         refreshToken: String = "test-refresh-token",
         accountId: String? = nil,
         lastRefresh: String? = nil,
-        apiKey: String? = nil
+        apiKey: String? = nil,
+        codexHomeSubdirectory: String = ".codex"
     ) throws {
-        let codexDir = directory.appendingPathComponent(".codex", isDirectory: true)
+        let codexDir: URL
+        if codexHomeSubdirectory.isEmpty {
+            codexDir = directory
+        } else {
+            codexDir = directory.appendingPathComponent(codexHomeSubdirectory, isDirectory: true)
+        }
         try FileManager.default.createDirectory(at: codexDir, withIntermediateDirectories: true)
 
         var tokens: [String: Any] = [
@@ -60,6 +66,52 @@ struct CodexCredentialLoaderTests {
         let credentials = loader.loadCredentials()
 
         #expect(credentials == nil)
+    }
+
+    @Test
+    func `loadCredentials uses explicit codexHomePath`() throws {
+        let homeDir = try makeTemporaryDirectory()
+        let fallbackDir = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: homeDir)
+            try? FileManager.default.removeItem(at: fallbackDir)
+        }
+
+        let explicitCodexHome = homeDir.appendingPathComponent("codex-home", isDirectory: true)
+        try createAuthFile(
+            at: explicitCodexHome,
+            accessToken: "explicit-token",
+            codexHomeSubdirectory: ""
+        )
+
+        let loader = CodexCredentialLoader(
+            homeDirectory: fallbackDir.path,
+            codexHomePath: explicitCodexHome.path
+        )
+        let result = loader.loadCredentials()
+
+        #expect(result != nil)
+        #expect(result?.accessToken == "explicit-token")
+    }
+
+    @Test
+    func `loadCredentials uses CODEX_HOME env var when explicit path is not set`() throws {
+        let fallbackDir = try makeTemporaryDirectory()
+        let envDir = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: fallbackDir)
+            try? FileManager.default.removeItem(at: envDir)
+            unsetenv("CODEX_HOME")
+        }
+
+        try createAuthFile(at: envDir, accessToken: "env-token")
+        setenv("CODEX_HOME", envDir.path, 1)
+
+        let loader = CodexCredentialLoader(homeDirectory: fallbackDir.path)
+        let result = loader.loadCredentials()
+
+        #expect(result != nil)
+        #expect(result?.accessToken == "env-token")
     }
 
     @Test

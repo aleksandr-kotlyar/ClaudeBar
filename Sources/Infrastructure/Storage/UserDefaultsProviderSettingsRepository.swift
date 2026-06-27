@@ -223,6 +223,18 @@ public final class UserDefaultsProviderSettingsRepository: ZaiSettingsRepository
         userDefaults.set(mode.rawValue, forKey: Keys.codexProbeMode)
     }
 
+    public func codexHomePath() -> String {
+        userDefaults.string(forKey: Keys.codexHomePath) ?? ""
+    }
+
+    public func setCodexHomePath(_ path: String) {
+        if path.isEmpty {
+            userDefaults.removeObject(forKey: Keys.codexHomePath)
+        } else {
+            userDefaults.set(path, forKey: Keys.codexHomePath)
+        }
+    }
+
     // MARK: - KimiSettingsRepository
 
     public func kimiProbeMode() -> KimiProbeMode {
@@ -389,6 +401,7 @@ public final class UserDefaultsProviderSettingsRepository: ZaiSettingsRepository
         static let claudeCliFallbackEnabled = "providerConfig.claudeCliFallbackEnabled"
         // Codex settings
         static let codexProbeMode = "providerConfig.codexProbeMode"
+        static let codexHomePath = "providerConfig.codexHomePath"
         // Kimi settings
         static let kimiProbeMode = "providerConfig.kimiProbeMode"
         static let zaiConfigPath = "providerConfig.zaiConfigPath"

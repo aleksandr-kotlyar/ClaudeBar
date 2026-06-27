@@ -70,7 +70,11 @@ struct ClaudeBarApp: App {
             ),
             CodexProvider(
                 rpcProbe: CodexUsageProbe(),
-                apiProbe: CodexAPIUsageProbe(),
+                apiProbe: CodexAPIUsageProbe(
+                    credentialLoader: CodexCredentialLoader(
+                        codexHomePath: settingsRepository.codexHomePath()
+                    )
+                ),
                 settingsRepository: settingsRepository
             ),
             GeminiProvider(probe: GeminiUsageProbe(), settingsRepository: settingsRepository),

@@ -7,7 +7,8 @@ import Mockable
 /// Feature: Codex Configuration
 ///
 /// Users switch Codex between RPC and API probe modes.
-/// API mode uses OAuth credentials from ~/.codex/auth.json.
+/// API mode uses Codex OAuth binding credentials from a configurable Codex home (`auth.json`).
+/// This is a ClaudeBar binding and does not log out the shared Codex CLI session.
 ///
 /// Behaviors covered:
 /// - #33: User switches Codex to API mode → uses ChatGPT backend API instead of RPC
@@ -92,6 +93,37 @@ struct CodexConfigSpec {
 
             // Then — persisted
             #expect(settings.codexProbeMode() == .api)
+        }
+
+        @Test
+        func `disconnect should only revert to rpc mode and keep credentials file`() throws {
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("codex-disconnect-test-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let codexDir = tempDir.appendingPathComponent(".codex", isDirectory: true)
+            try FileManager.default.createDirectory(at: codexDir, withIntermediateDirectories: true)
+            let authPath = codexDir.appendingPathComponent("auth.json")
+            let payload = try JSONSerialization.data(withJSONObject: [
+                "tokens": ["access_token": "test-token"]
+            ])
+            try payload.write(to: authPath)
+
+            let suiteName = "com.claudebar.test.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            let settings = UserDefaultsProviderSettingsRepository(userDefaults: defaults)
+            settings.setCodexProbeMode(.api)
+            settings.setCodexHomePath(tempDir.path)
+
+            #expect(settings.codexProbeMode() == .api)
+            let loader = CodexCredentialLoader(homeDirectory: tempDir.path, codexHomePath: tempDir.path)
+            #expect(loader.loadCredentials() != nil)
+
+            settings.setCodexProbeMode(.rpc)
+
+            #expect(settings.codexProbeMode() == .rpc)
+            #expect(loader.loadCredentials() != nil)
         }
     }
 

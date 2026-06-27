@@ -166,6 +166,23 @@ struct JSONSettingsRepositoryProviderTests {
         #expect(repo.codexProbeMode() == .api)
     }
 
+    @Test
+    func `codexHomePath defaults to empty string`() {
+        let (repo, dir) = makeRepository()
+        defer { cleanup(dir) }
+
+        #expect(repo.codexHomePath() == "")
+    }
+
+    @Test
+    func `setCodexHomePath persists value`() {
+        let (repo, dir) = makeRepository()
+        defer { cleanup(dir) }
+
+        repo.setCodexHomePath("/tmp/custom-codex-home")
+        #expect(repo.codexHomePath() == "/tmp/custom-codex-home")
+    }
+
     // MARK: - Kimi Settings
 
     @Test

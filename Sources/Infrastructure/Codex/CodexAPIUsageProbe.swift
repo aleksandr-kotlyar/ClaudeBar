@@ -3,7 +3,7 @@ import Domain
 
 /// Codex API-based usage probe that fetches quota data directly from the ChatGPT backend API.
 ///
-/// This probe uses the user's OAuth credentials (from `~/.codex/auth.json`)
+/// This probe uses the user's OAuth credentials (from Codex auth path `auth.json`)
 /// to call the usage API endpoint. It automatically refreshes expired tokens.
 ///
 /// Usage URL: `https://chatgpt.com/backend-api/wham/usage`

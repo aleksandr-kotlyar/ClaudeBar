@@ -1,7 +1,7 @@
 import Foundation
 import Domain
 
-/// Codex OAuth credentials loaded from `~/.codex/auth.json`.
+/// Codex OAuth credentials loaded from `auth.json` in the configured Codex home.
 public struct CodexCredentialResult: @unchecked Sendable {
     public var accessToken: String
     public var refreshToken: String?
@@ -24,7 +24,7 @@ public struct CodexCredentialResult: @unchecked Sendable {
     }
 }
 
-/// Loads Codex OAuth credentials from `~/.codex/auth.json`.
+/// Loads Codex OAuth credentials from configured Codex home path.
 ///
 /// The auth file has the format:
 /// ```json
@@ -39,20 +39,36 @@ public struct CodexCredentialResult: @unchecked Sendable {
 /// ```
 public struct CodexCredentialLoader: Sendable {
     private let homeDirectory: String
+    private let explicitCodexHomePath: String?
 
     /// Refresh age threshold: 8 days (matching Codex JS reference)
     private static let refreshAgeMs: Double = 8 * 24 * 60 * 60 * 1000
 
-    public init(homeDirectory: String = NSHomeDirectory()) {
+    public init(homeDirectory: String = NSHomeDirectory(), codexHomePath: String? = nil) {
         self.homeDirectory = homeDirectory
+        self.explicitCodexHomePath = codexHomePath
+    }
+
+    private func codexHomeDirectory() -> String {
+        if let explicitPath = explicitCodexHomePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicitPath.isEmpty {
+            return explicitPath.expandedPath()
+        }
+
+        if let envPath = ProcessInfo.processInfo.environment["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !envPath.isEmpty {
+            return envPath.expandedPath()
+        }
+
+        return (homeDirectory as NSString).appendingPathComponent(".codex")
     }
 
     /// The path to the auth file.
     public var authFilePath: String {
-        (homeDirectory as NSString).appendingPathComponent(".codex/auth.json")
+        (codexHomeDirectory() as NSString).appendingPathComponent("auth.json")
     }
 
-    /// Loads credentials from `~/.codex/auth.json`.
+    /// Loads credentials from the configured path.
     /// Returns nil if no valid OAuth credentials are found.
     /// Note: API key auth (`OPENAI_API_KEY`) is not supported for usage API.
     public func loadCredentials() -> CodexCredentialResult? {
@@ -169,5 +185,15 @@ public struct CodexCredentialLoader: Sendable {
             AppLog.credentials.error("Failed to remove Codex credentials file: \(error.localizedDescription)")
             return false
         }
+    }
+}
+
+private extension String {
+    func expandedPath() -> String {
+        guard hasPrefix("~") else {
+            return self
+        }
+
+        return (self as NSString).expandingTildeInPath
     }
 }

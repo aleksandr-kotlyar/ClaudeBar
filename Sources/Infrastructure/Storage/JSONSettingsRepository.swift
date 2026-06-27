@@ -228,6 +228,14 @@ public final class JSONSettingsRepository:
         store.write(value: mode.rawValue, key: "codex.probeMode")
     }
 
+    public func codexHomePath() -> String {
+        store.read(key: "codex.homePath") ?? ""
+    }
+
+    public func setCodexHomePath(_ path: String) {
+        store.write(value: path.isEmpty ? nil : path, key: "codex.homePath")
+    }
+
     // MARK: - KimiSettingsRepository
 
     public func kimiProbeMode() -> KimiProbeMode {

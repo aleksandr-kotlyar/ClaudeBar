@@ -189,6 +189,14 @@ public protocol CodexSettingsRepository: ProviderSettingsRepository {
 
     /// Sets the probe mode for Codex
     func setCodexProbeMode(_ mode: CodexProbeMode)
+
+    /// Gets explicit Codex home path override (`$CODEX_HOME` or custom directory)
+    /// used to locate `auth.json`. Empty means use default fallback (`~/.codex`).
+    func codexHomePath() -> String
+
+    /// Sets explicit Codex home path override (`$CODEX_HOME` or custom directory).
+    /// Empty value clears the override and restores default path behavior.
+    func setCodexHomePath(_ path: String)
 }
 
 /// Kimi-specific settings repository, extending base ProviderSettingsRepository.

@@ -8,7 +8,10 @@ public enum CodexProbeMode: String, Sendable, Equatable, CaseIterable {
     case rpc
 
     /// Use the ChatGPT backend API to fetch usage data directly.
-    /// Requires valid OAuth credentials in ~/.codex/auth.json.
+    /// Requires valid OAuth credentials in Codex auth file (`auth.json`) found in:
+    /// - Explicit `Codex home path` from ClaudeBar settings
+    /// - `$CODEX_HOME` environment variable
+    /// - `~/.codex` fallback
     /// Faster than RPC mode as it doesn't spawn a subprocess.
     case api
 
