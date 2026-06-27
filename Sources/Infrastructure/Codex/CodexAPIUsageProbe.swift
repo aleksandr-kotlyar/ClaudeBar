@@ -59,7 +59,7 @@ public struct CodexAPIUsageProbe: UsageProbe, @unchecked Sendable {
         }
 
         // Check if token needs refresh (based on last_refresh age)
-        if credentialLoader.needsRefresh(lastRefresh: credentials.lastRefresh) {
+        if credentialsLoader.needsRefresh(lastRefresh: credentials.lastRefresh) {
             AppLog.probes.info("Codex API: Token needs refresh (last_refresh > 8 days)")
             do {
                 credentials = try await refreshToken(credentials, credentialLoader: credentialsLoader)
