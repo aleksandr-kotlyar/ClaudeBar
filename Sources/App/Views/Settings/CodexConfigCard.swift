@@ -7,7 +7,9 @@ struct CodexConfigCard: View {
     let monitor: QuotaMonitor
 
     @State private var settings = AppSettings.shared
+    @State private var hasCredentials: Bool = false
     @Environment(\.appTheme) private var theme
+    private let credentialLoader = CodexCredentialLoader()
 
     @State private var codexConfigExpanded: Bool = false
     @State private var codexProbeMode: CodexProbeMode = .rpc
@@ -48,6 +50,7 @@ struct CodexConfigCard: View {
         )
         .onAppear {
             codexProbeMode = settings.codex.codexProbeMode()
+            refreshCredentialStatus()
         }
     }
 
@@ -102,6 +105,7 @@ struct CodexConfigCard: View {
                     Task {
                         await monitor.refresh(providerId: "codex")
                     }
+                    refreshCredentialStatus()
                 }
             }
 
@@ -142,9 +146,6 @@ struct CodexConfigCard: View {
             }
 
             if codexProbeMode == .api {
-                let credentialLoader = CodexCredentialLoader()
-                let hasCredentials = credentialLoader.loadCredentials() != nil
-
                 HStack(spacing: 6) {
                     Image(systemName: hasCredentials ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
@@ -159,8 +160,39 @@ struct CodexConfigCard: View {
                     Text("Run `codex` in terminal to authenticate, then credentials will be available.")
                         .font(.system(size: 9, weight: .medium, design: theme.fontDesign))
                         .foregroundStyle(theme.textTertiary)
+                } else {
+                    Button {
+                        disconnectCodex()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "link.slash")
+                                .font(.system(size: 10))
+                            Text("Disconnect")
+                                .font(.system(size: 9, weight: .semibold, design: theme.fontDesign))
+                        }
+                        .foregroundStyle(theme.statusWarning)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(theme.statusWarning.opacity(0.5), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+        }
+    }
+
+    private func refreshCredentialStatus() {
+        hasCredentials = credentialLoader.loadCredentials() != nil
+    }
+
+    private func disconnectCodex() {
+        credentialLoader.disconnect()
+        refreshCredentialStatus()
+        Task {
+            await monitor.refresh(providerId: "codex")
         }
     }
 }

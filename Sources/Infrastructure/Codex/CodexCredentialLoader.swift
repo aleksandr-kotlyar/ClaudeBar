@@ -150,4 +150,24 @@ public struct CodexCredentialLoader: Sendable {
             AppLog.credentials.error("Failed to save Codex credentials to file: \(error.localizedDescription)")
         }
     }
+
+    /// Removes stored OAuth credentials so API mode can be re-authenticated.
+    /// Returns `true` when credentials are no longer present after the call.
+    @discardableResult
+    public func disconnect() -> Bool {
+        do {
+            try FileManager.default.removeItem(atPath: authFilePath)
+            AppLog.credentials.info("Removed Codex credentials from \(authFilePath)")
+            return true
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileNoSuchFileError {
+                AppLog.credentials.info("Codex credential file not found at \(authFilePath) during disconnect")
+                return true
+            }
+
+            AppLog.credentials.error("Failed to remove Codex credentials file: \(error.localizedDescription)")
+            return false
+        }
+    }
 }
